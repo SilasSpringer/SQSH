@@ -1,0 +1,18 @@
+[package]
+name = "SQSH"
+authors = ["SilasSpringer <ss132517@ohio.edu>"]
+version = "0.1.0"
+edition = "2021"
+publish = true
+
+[dependencies]
+quiche = "0.22.0"
+docopt = "1"
+env_logger = "0.10"
+mio = { version = "0.8", features = ["net", "os-poll"] }
+url = "1"
+log = "0.4"
+octets = { version = "0.3"}
+ring = "0.17"
+libc = "0.2"
+nix = { version = "0.27", features = ["net", "socket", "uio"] }
