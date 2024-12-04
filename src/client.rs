@@ -27,6 +27,10 @@
 use crate::args::*;
 use crate::common::*;
 
+use std::io::IsTerminal;
+use std::fs;
+use std::os::unix::io::AsRawFd;
+
 use std::net::ToSocketAddrs;
 
 use std::io::prelude::*;
@@ -35,6 +39,8 @@ use std::rc::Rc;
 
 use std::cell::RefCell;
 
+use libc::fprintf;
+use libc::sleep;
 use ring::rand::*;
 
 use std::time::{Instant, Duration};
@@ -167,9 +173,39 @@ pub fn connect(
         config.enable_dgram(true, 1000, 1000);
     }
 
-    let mut http_conn: Option<Box<dyn HttpConn>> = None;
+    // let mut http_conn: Option<Box<dyn HttpConn>> = None;
 
-    let mut app_proto_selected = false;
+    let mut sqsh_conn: Option<Box<dyn SQSHConn>> = None;
+    let mut top_stream_id: u64 = 0;
+    let mut stdinbuf: [u8; 65535] = [0; 65535];
+    let mut outbuf: [u8; 65535] = [0; 65535];
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    // if(stdin.is_terminal()){
+        
+    // }
+    let tty_f;
+    let fd = unsafe {
+        if libc::isatty(libc::STDIN_FILENO) == 1 {
+            libc::STDIN_FILENO
+        } else {
+            tty_f = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("/dev/tty")
+                .expect("Failed to open tty as raw fd.");
+            tty_f.as_raw_fd()
+        }
+    };
+    let mut termios = core::mem::MaybeUninit::uninit();
+    unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) };
+    let mut termios = unsafe { termios.assume_init() };
+    let original = termios;
+    unsafe { libc::cfmakeraw(&mut termios) };
+    termios.c_oflag = original.c_oflag;
+
+// APPROTO REFERENCE
+    // let mut app_proto_selected = false;
 
     // Generate a random source connection ID for the connection.
     let rng = SystemRandom::new();
@@ -262,7 +298,10 @@ pub fn connect(
     let mut migrated = false;
 
     loop {
-        if !conn.is_in_early_data() || app_proto_selected {
+// APPROTO REFERENCE
+        if !conn.is_in_early_data() 
+        //|| app_proto_selected 
+        {
             poll.poll(&mut events, conn.timeout()).unwrap();
         }
 
@@ -362,11 +401,11 @@ pub fn connect(
                 }
             }
 
-            if let Some(h_conn) = http_conn {
-                if h_conn.report_incomplete(&app_data_start) {
-                    return Err(ClientError::HttpFail);
-                }
-            }
+            // if let Some(h_conn) = http_conn {
+            //     if h_conn.report_incomplete(&app_data_start) {
+            //         return Err(ClientError::HttpFail);
+            //     }
+            // }
 
             break;
         }
@@ -375,12 +414,68 @@ pub fn connect(
             eprintln!("Time to first packet read: {}ms", now.elapsed().as_millis());
         }
 
+
+// BEGIN APPPROTO SECTION
         // Create a new application protocol session once the QUIC connection is
         // established.
         if (conn.is_established() || conn.is_in_early_data()) &&
-            (!args.perform_migration || migrated) &&
-            !app_proto_selected
+            (!args.perform_migration || migrated) 
+            // &&
+            // !app_proto_selected
         {
+            // make SQSH connection
+
+            sqsh_conn = Some(SQSH1Conn::with_init(
+                // &mut conn, 
+                &mut top_stream_id, 
+                SQSHInitMode::SQSHInitNone, 
+                &None 
+            ));
+            unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &termios) };
+            let res = stdin.read(&mut stdinbuf).expect("Error reading from stdin.");
+            unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &original) };
+
+            
+            if let Some(s_conn) = sqsh_conn {
+                //TODO: change zero...
+                // let _ = conn.stream_send(4, &stdinbuf[..res], false).expect("send failed.");
+
+                let _ = match conn.stream_send(4, &stdinbuf[..res], false) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        // error!("{} send failed: {:?}", conn.trace_id(), e);
+                        0
+                    },
+                };
+
+                let res = match conn.stream_recv(4, &mut outbuf) {
+                    Ok((v,_)) => v,
+                    Err(e) => {
+                        // error!("{} recv failed: {:?}", conn.trace_id(), e);
+                        0
+                    },
+                };
+
+                // looping for echoes doesnt work since send doesnt send until end of loop...
+
+                
+                // println!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..res]);
+                // println!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..res]);
+                // print!("{}", String::from_utf8_lossy(&outbuf[..res]));
+                let _ = stdout.write(&outbuf[..res]);
+                let _ = stdout.flush();
+            }
+                // let _ = conn.send(&mut stdinbuf[..res]);
+
+
+            // collate data from stdin
+            // send data
+            // continue and let processing occur
+
+            // need to figure out how to hold onto data from stdin that arrives while elsewhere in the loop though...
+
+
+
             // At this stage the ALPN negotiation succeeded and selected a
             // single application protocol name. We'll use this to construct
             // the correct type of HttpConn but `application_proto()`
@@ -389,53 +484,56 @@ pub fn connect(
             // we need the value and if something fails at this stage, there
             // is not much anyone can do to recover.
 
-            let app_proto = conn.application_proto();
+            // let app_proto = conn.application_proto();
 
-            if alpns::HTTP_09.contains(&app_proto) {
-                http_conn = Some(Http09Conn::with_urls(
-                    &args.urls,
-                    args.reqs_cardinal,
-                    Rc::clone(&output_sink),
-                ));
 
-                app_proto_selected = true;
-            } else if alpns::HTTP_3.contains(&app_proto) {
-                let dgram_sender = if conn_args.dgrams_enabled {
-                    Some(Http3DgramSender::new(
-                        conn_args.dgram_count,
-                        conn_args.dgram_data.clone(),
-                        0,
-                    ))
-                } else {
-                    None
-                };
+            // if alpns::HTTP_09.contains(&app_proto) {
+            //     http_conn = Some(Http09Conn::with_urls(
+            //         &args.urls,
+            //         args.reqs_cardinal,
+            //         Rc::clone(&output_sink),
+            //     ));
 
-                http_conn = Some(Http3Conn::with_urls(
-                    &mut conn,
-                    &args.urls,
-                    args.reqs_cardinal,
-                    &args.req_headers,
-                    &args.body,
-                    &args.method,
-                    args.send_priority_update,
-                    conn_args.max_field_section_size,
-                    conn_args.qpack_max_table_capacity,
-                    conn_args.qpack_blocked_streams,
-                    args.dump_json,
-                    dgram_sender,
-                    Rc::clone(&output_sink),
-                ));
+            //     app_proto_selected = true;
+            // } else if alpns::HTTP_3.contains(&app_proto) {
+            //     let dgram_sender = if conn_args.dgrams_enabled {
+            //         Some(Http3DgramSender::new(
+            //             conn_args.dgram_count,
+            //             conn_args.dgram_data.clone(),
+            //             0,
+            //         ))
+            //     } else {
+            //         None
+            //     };
 
-                app_proto_selected = true;
-            }
+            //     http_conn = Some(Http3Conn::with_urls(
+            //         &mut conn,
+            //         &args.urls,
+            //         args.reqs_cardinal,
+            //         &args.req_headers,
+            //         &args.body,
+            //         &args.method,
+            //         args.send_priority_update,
+            //         conn_args.max_field_section_size,
+            //         conn_args.qpack_max_table_capacity,
+            //         conn_args.qpack_blocked_streams,
+            //         args.dump_json,
+            //         dgram_sender,
+            //         Rc::clone(&output_sink),
+            //     ));
+
+            //     app_proto_selected = true;
+            // }
         }
 
         // If we have an HTTP connection, first issue the requests then
         // process received data.
-        if let Some(h_conn) = http_conn.as_mut() {
-            h_conn.send_requests(&mut conn, &args.dump_response_path);
-            h_conn.handle_responses(&mut conn, &mut buf, &app_data_start);
-        }
+        // if let Some(h_conn) = http_conn.as_mut() {
+        //     h_conn.send_requests(&mut conn, &args.dump_response_path);
+        //     h_conn.handle_responses(&mut conn, &mut buf, &app_data_start);
+        // }
+
+// END APPPROTO SECTION
 
         // Handle path events.
         while let Some(qe) = conn.path_event_next() {
@@ -595,11 +693,12 @@ pub fn connect(
                 }
             }
 
-            if let Some(h_conn) = http_conn {
-                if h_conn.report_incomplete(&app_data_start) {
-                    return Err(ClientError::HttpFail);
-                }
-            }
+            // if let Some(h_conn) = http_conn {
+            //     if h_conn.report_incomplete(&app_data_start) {
+            //         return Err(ClientError::HttpFail);
+            //     }
+            // }
+
 
             break;
         }

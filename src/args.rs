@@ -60,7 +60,7 @@ pub struct CommonArgs {
 ///
 /// The `Docopt` usage String needs to include the following:
 ///
-/// --http-version VERSION      HTTP version to use.
+    /// --http-version VERSION      HTTP version to use.
 /// --max-data BYTES            Connection-wide flow control limit.
 /// --max-window BYTES          Connection-wide max receiver window.
 /// --max-stream-data BYTES     Per-stream flow control limit.

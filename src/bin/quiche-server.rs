@@ -403,11 +403,13 @@ fn main() {
 
                 let client = Client {
                     conn,
-                    http_conn: None,
+                    // http_conn: None,
+                    sqsh_conn: vec![None],
                     client_id,
-                    partial_requests: HashMap::new(),
-                    partial_responses: HashMap::new(),
-                    app_proto_selected: false,
+                    top_stream_id: 0,
+                    // partial_requests: HashMap::new(),
+                    // partial_responses: HashMap::new(),
+                    // app_proto_selected: false,
                     max_datagram_size,
                     loss_rate: 0.0,
                     max_send_burst: MAX_BUF_SIZE,
@@ -435,7 +437,7 @@ fn main() {
             };
 
             // Process potentially coalesced packets.
-            let read = match client.conn.recv(pkt_buf, recv_info) {
+            let read  = match client.conn.recv(pkt_buf, recv_info) {
                 Ok(v) => v,
 
                 Err(e) => {
@@ -443,6 +445,10 @@ fn main() {
                     continue 'read;
                 },
             };
+            
+            
+            
+
 
             trace!("{} processed {} bytes", client.conn.trace_id(), read);
 
@@ -452,7 +458,8 @@ fn main() {
 
             // Create a new application protocol session as soon as the QUIC
             // connection is established.
-            if !client.app_proto_selected &&
+            if 
+            // !client.app_proto_selected &&
                 (client.conn.is_in_early_data() ||
                     client.conn.is_established())
             {
@@ -463,75 +470,118 @@ fn main() {
                 // to compare to our lists of protocols. We `unwrap()` because
                 // we need the value and if something fails at this stage, there
                 // is not much anyone can do to recover.
-                let app_proto = client.conn.application_proto();
+                // let app_proto = client.conn.application_proto();
 
-                #[allow(clippy::box_default)]
-                if alpns::HTTP_09.contains(&app_proto) {
-                    client.http_conn = Some(Box::<Http09Conn>::default());
+            //     #[allow(clippy::box_default)]
+            //     if alpns::HTTP_09.contains(&app_proto) {
+            //         client.http_conn = Some(Box::<Http09Conn>::default());
 
-                    client.app_proto_selected = true;
-                } else if alpns::HTTP_3.contains(&app_proto) {
-                    let dgram_sender = if conn_args.dgrams_enabled {
-                        Some(Http3DgramSender::new(
-                            conn_args.dgram_count,
-                            conn_args.dgram_data.clone(),
-                            1,
-                        ))
-                    } else {
-                        None
-                    };
+            //         client.app_proto_selected = true;
+            //     } else if alpns::HTTP_3.contains(&app_proto) {
+            //         let dgram_sender = if conn_args.dgrams_enabled {
+            //             Some(Http3DgramSender::new(
+            //                 conn_args.dgram_count,
+            //                 conn_args.dgram_data.clone(),
+            //                 1,
+            //             ))
+            //         } else {
+            //             None
+            //         };
 
-                    client.http_conn = match Http3Conn::with_conn(
-                        &mut client.conn,
-                        conn_args.max_field_section_size,
-                        conn_args.qpack_max_table_capacity,
-                        conn_args.qpack_blocked_streams,
-                        dgram_sender,
-                        Rc::new(RefCell::new(stdout_sink)),
-                    ) {
-                        Ok(v) => Some(v),
+            //         client.http_conn = match Http3Conn::with_conn(
+            //             &mut client.conn,
+            //             conn_args.max_field_section_size,
+            //             conn_args.qpack_max_table_capacity,
+            //             conn_args.qpack_blocked_streams,
+            //             dgram_sender,
+            //             Rc::new(RefCell::new(stdout_sink)),
+            //         ) {
+            //             Ok(v) => Some(v),
 
-                        Err(e) => {
-                            trace!("{} {}", client.conn.trace_id(), e);
-                            None
-                        },
-                    };
+            //             Err(e) => {
+            //                 trace!("{} {}", client.conn.trace_id(), e);
+            //                 None
+            //             },
+            //         };
 
-                    client.app_proto_selected = true;
-                }
+            //         client.app_proto_selected = true;
+            //     }
 
-                // Update max_datagram_size after connection established.
-                client.max_datagram_size =
-                    client.conn.max_send_udp_payload_size();
+            //     // Update max_datagram_size after connection established.
+            //     client.max_datagram_size =
+            //         client.conn.max_send_udp_payload_size();
+            // }
+
+            // if client.http_conn.is_some() {
+            //     let conn = &mut client.conn;
+            //     let http_conn = client.http_conn.as_mut().unwrap();
+            //     let partial_responses = &mut client.partial_responses;
+
+            //     // Visit all writable response streams to send any remaining HTTP
+            //     // content.
+            //     for stream_id in writable_response_streams(conn) {
+            //         http_conn.handle_writable(conn, partial_responses, stream_id);
+            //     }
+
+            //     if http_conn
+            //         .handle_requests(
+            //             conn,
+            //             &mut client.partial_requests,
+            //             partial_responses,
+            //             &args.root,
+            //             &args.index,
+            //             &mut buf,
+            //         )
+            //         .is_err()
+            //     {
+            //         continue 'read;
+            //     }
             }
 
-            if client.http_conn.is_some() {
-                let conn = &mut client.conn;
-                let http_conn = client.http_conn.as_mut().unwrap();
-                let partial_responses = &mut client.partial_responses;
-
-                // Visit all writable response streams to send any remaining HTTP
-                // content.
-                for stream_id in writable_response_streams(conn) {
-                    http_conn.handle_writable(conn, partial_responses, stream_id);
-                }
-
-                if http_conn
-                    .handle_requests(
-                        conn,
-                        &mut client.partial_requests,
-                        partial_responses,
-                        &args.root,
-                        &args.index,
-                        &mut buf,
-                    )
-                    .is_err()
-                {
-                    continue 'read;
-                }
-            }
+            client.sqsh_conn =  
+            vec![Some(SQSH1Conn::with_init(
+                &mut client.top_stream_id,
+                SQSHInitMode::SQSHInitNone,
+                &None
+            ))];
 
             handle_path_events(client);
+
+
+
+            let read  = match client.conn.stream_recv(4, pkt_buf){
+                Ok((v, _)) => v,
+
+                Err(e) => {
+                    // error!("{} recv failed: {:?}", client.conn.trace_id(), e);
+                    // continue 'read;
+                    0
+                },
+            };
+
+            //TODO: change zero...
+            let mut echoed: usize = 0;
+            // while echoed < read {
+                // echoed += match client.conn.stream_send(4, &pkt_buf[..read], false){
+                //     Ok(v) => v,
+                //     Err(e) => {
+                //         error!("{} send failed: {:?}", client.conn.trace_id(), e);
+                //         // continue 'read;
+                //         0
+                //     },
+                // };
+            // }
+            match client.conn.stream_send(4, &pkt_buf[..read], false){
+                Ok(v) => v,
+                Err(e) => {
+                    error!("{} send failed: {:?}", client.conn.trace_id(), e);
+                    // continue 'read;
+                    0
+                },
+            };
+            println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
+
+
 
             // See whether source Connection IDs have been retired.
             while let Some(retired_scid) = client.conn.retired_scid_next() {

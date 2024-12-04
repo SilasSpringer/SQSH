@@ -31,7 +31,7 @@
 //      need to check for existence of shared socket before making connection to remote.
 //      need to make AF_UNIX socket at `/tmp/%u@%h:%p` to accept new connections on the shared connection if 
 //          it doesnt already exist.
-//      need to connect to existing chared socket if it does exist, and send data to that socket. whomever 
+//      need to connect to existing shared socket if it does exist, and send data to that socket. whomever 
 //          started that shared socket 
 //          then also needs to handle passing data from that shared socket to the real one.
 //      need to then figure out how to get the data back to the appropriate application which is connected 
