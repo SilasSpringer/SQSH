@@ -415,7 +415,7 @@ pub fn connect(
         }
 
 
-// BEGIN APPPROTO SECTION
+        // BEGIN APPPROTO SECTION
         // Create a new application protocol session once the QUIC connection is
         // established.
         if (conn.is_established() || conn.is_in_early_data()) &&
@@ -432,38 +432,38 @@ pub fn connect(
                 &None 
             ));
             unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &termios) };
-            let res = stdin.read(&mut stdinbuf).expect("Error reading from stdin.");
+            let in_size = stdin.read(&mut stdinbuf).expect("Error reading from stdin.");
             unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &original) };
 
             
             if let Some(s_conn) = sqsh_conn {
-                //TODO: change zero...
-                // let _ = conn.stream_send(4, &stdinbuf[..res], false).expect("send failed.");
-
-                let _ = match conn.stream_send(4, &stdinbuf[..res], false) {
-                    Ok(v) => v,
+                // send input to server
+                let send_res = match conn.stream_send(4, &stdinbuf[..in_size], false) {
+                    Ok(v) => {
+                        trace!("sent {} bytes", v);
+                    },
                     Err(e) => {
-                        // error!("{} send failed: {:?}", conn.trace_id(), e);
-                        0
+                        error!("{} send failed: {:?}", conn.trace_id(), e);
+                        break;
                     },
                 };
 
-                let res = match conn.stream_recv(4, &mut outbuf) {
+                let resp_size = match conn.stream_recv(4, &mut outbuf) {
                     Ok((v,_)) => v,
                     Err(e) => {
-                        // error!("{} recv failed: {:?}", conn.trace_id(), e);
+                        error!("{} recv failed: {:?}", conn.trace_id(), e);
                         0
                     },
                 };
-
-                // looping for echoes doesnt work since send doesnt send until end of loop...
-
                 
-                // println!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..res]);
-                // println!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..res]);
-                // print!("{}", String::from_utf8_lossy(&outbuf[..res]));
-                let _ = stdout.write(&outbuf[..res]);
-                let _ = stdout.flush();
+                println!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..in_size]);
+                println!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..resp_size]);
+                if resp_size > 0{
+                    let _ = stdout.write(&outbuf[..resp_size]);
+                    let _ = stdout.flush();
+                } else {
+                    error!("no response from server");
+                }
             }
                 // let _ = conn.send(&mut stdinbuf[..res]);
 

@@ -452,9 +452,9 @@ fn main() {
 
             trace!("{} processed {} bytes", client.conn.trace_id(), read);
 
-//---------------------------------------------------
-// BEGIN APPDATA SECTION
-// currently uses HTTP, but we'll make a custom application protocol probably to handle SSH style information.
+            //---------------------------------------------------
+            // BEGIN APPDATA SECTION
+            // currently uses HTTP, but we'll make a custom application protocol probably to handle SSH style information.
 
             // Create a new application protocol session as soon as the QUIC
             // connection is established.
@@ -553,14 +553,32 @@ fn main() {
                 Ok((v, _)) => v,
 
                 Err(e) => {
-                    // error!("{} recv failed: {:?}", client.conn.trace_id(), e);
-                    // continue 'read;
+                    error!("{} recv failed: {:?}", client.conn.trace_id(), e);
+                    //continue 'read;
                     0
                 },
             };
+            if read > 0 {
+                // print received data to server terminal
+                println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
 
+                // echo back to client
+                let mut echoed = 0;
+                while echoed < read {
+                    let _ = match client.conn.stream_send(4, &pkt_buf[..read], false){
+                        Ok(v) => echoed += v,
+                        Err(e) => {
+                            error!("{} send failed: {:?}", client.conn.trace_id(), e);
+                            // something broke
+                            // avoid inf loop
+                            //continue 'read;
+                            break;
+                        },
+                    };
+                }
+            }
             //TODO: change zero...
-            let mut echoed: usize = 0;
+            //let mut echoed: usize = 0;
             // while echoed < read {
                 // echoed += match client.conn.stream_send(4, &pkt_buf[..read], false){
                 //     Ok(v) => v,
@@ -571,17 +589,14 @@ fn main() {
                 //     },
                 // };
             // }
-            match client.conn.stream_send(4, &pkt_buf[..read], false){
-                Ok(v) => v,
-                Err(e) => {
-                    error!("{} send failed: {:?}", client.conn.trace_id(), e);
-                    // continue 'read;
-                    0
-                },
-            };
-            println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
-
-
+            // match client.conn.stream_send(4, &pkt_buf[..read], false){
+            //     Ok(v) => v,
+            //     Err(e) => {
+            //         error!("{} send failed: {:?}", client.conn.trace_id(), e);
+            //         // continue 'read;
+            //         0
+            //     },
+            // };
 
             // See whether source Connection IDs have been retired.
             while let Some(retired_scid) = client.conn.retired_scid_next() {
