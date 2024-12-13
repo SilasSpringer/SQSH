@@ -29,6 +29,8 @@
 //! This module provides some utility functions that are common to quiche
 //! applications.
 
+use std::fmt;
+use std::default;
 use std::io::prelude::*;
 
 use std::collections::HashMap;
@@ -45,6 +47,7 @@ use std::cell::RefCell;
 
 use std::path;
 
+use portable_pty::PtyPair;
 use ring::rand::SecureRandom;
 
 use quiche::ConnectionId;
@@ -52,11 +55,14 @@ use quiche::ConnectionId;
 use quiche::h3::NameValue;
 use quiche::h3::Priority;
 
+use portable_pty::{CommandBuilder, PtySize, native_pty_system, PtySystem, Child};
+
 pub fn stdout_sink(out: String) {
     print!("{out}");
 }
 
 const H3_MESSAGE_ERROR: u64 = 0x10E;
+
 
 /// ALPN helpers.
 ///
@@ -170,94 +176,95 @@ pub fn make_qlog_writer(
         ),
     }
 }
+/*
+    // fn dump_json(reqs: &[Http3Request], output_sink: &mut dyn FnMut(String)) {
+    //     let mut out = String::new();
 
-// fn dump_json(reqs: &[Http3Request], output_sink: &mut dyn FnMut(String)) {
-//     let mut out = String::new();
+    //     writeln!(out, "{{").unwrap();
+    //     writeln!(out, "  \"entries\": [").unwrap();
+    //     let mut reqs = reqs.iter().peekable();
 
-//     writeln!(out, "{{").unwrap();
-//     writeln!(out, "  \"entries\": [").unwrap();
-//     let mut reqs = reqs.iter().peekable();
+    //     while let Some(req) = reqs.next() {
+    //         writeln!(out, "  {{").unwrap();
+    //         writeln!(out, "    \"request\":{{").unwrap();
+    //         writeln!(out, "      \"headers\":[").unwrap();
 
-//     while let Some(req) = reqs.next() {
-//         writeln!(out, "  {{").unwrap();
-//         writeln!(out, "    \"request\":{{").unwrap();
-//         writeln!(out, "      \"headers\":[").unwrap();
+    //         let mut req_hdrs = req.hdrs.iter().peekable();
+    //         while let Some(h) = req_hdrs.next() {
+    //             writeln!(out, "        {{").unwrap();
+    //             writeln!(
+    //                 out,
+    //                 "          \"name\": \"{}\",",
+    //                 std::str::from_utf8(h.name()).unwrap()
+    //             )
+    //             .unwrap();
+    //             writeln!(
+    //                 out,
+    //                 "          \"value\": \"{}\"",
+    //                 std::str::from_utf8(h.value()).unwrap().replace('"', "\\\"")
+    //             )
+    //             .unwrap();
 
-//         let mut req_hdrs = req.hdrs.iter().peekable();
-//         while let Some(h) = req_hdrs.next() {
-//             writeln!(out, "        {{").unwrap();
-//             writeln!(
-//                 out,
-//                 "          \"name\": \"{}\",",
-//                 std::str::from_utf8(h.name()).unwrap()
-//             )
-//             .unwrap();
-//             writeln!(
-//                 out,
-//                 "          \"value\": \"{}\"",
-//                 std::str::from_utf8(h.value()).unwrap().replace('"', "\\\"")
-//             )
-//             .unwrap();
+    //             if req_hdrs.peek().is_some() {
+    //                 writeln!(out, "        }},").unwrap();
+    //             } else {
+    //                 writeln!(out, "        }}").unwrap();
+    //             }
+    //         }
+    //         writeln!(out, "      ]}},").unwrap();
 
-//             if req_hdrs.peek().is_some() {
-//                 writeln!(out, "        }},").unwrap();
-//             } else {
-//                 writeln!(out, "        }}").unwrap();
-//             }
-//         }
-//         writeln!(out, "      ]}},").unwrap();
+    //         writeln!(out, "    \"response\":{{").unwrap();
+    //         writeln!(out, "      \"headers\":[").unwrap();
 
-//         writeln!(out, "    \"response\":{{").unwrap();
-//         writeln!(out, "      \"headers\":[").unwrap();
+    //         let mut response_hdrs = req.response_hdrs.iter().peekable();
+    //         while let Some(h) = response_hdrs.next() {
+    //             writeln!(out, "        {{").unwrap();
+    //             writeln!(
+    //                 out,
+    //                 "          \"name\": \"{}\",",
+    //                 std::str::from_utf8(h.name()).unwrap()
+    //             )
+    //             .unwrap();
+    //             writeln!(
+    //                 out,
+    //                 "          \"value\": \"{}\"",
+    //                 std::str::from_utf8(h.value()).unwrap().replace('"', "\\\"")
+    //             )
+    //             .unwrap();
 
-//         let mut response_hdrs = req.response_hdrs.iter().peekable();
-//         while let Some(h) = response_hdrs.next() {
-//             writeln!(out, "        {{").unwrap();
-//             writeln!(
-//                 out,
-//                 "          \"name\": \"{}\",",
-//                 std::str::from_utf8(h.name()).unwrap()
-//             )
-//             .unwrap();
-//             writeln!(
-//                 out,
-//                 "          \"value\": \"{}\"",
-//                 std::str::from_utf8(h.value()).unwrap().replace('"', "\\\"")
-//             )
-//             .unwrap();
+    //             if response_hdrs.peek().is_some() {
+    //                 writeln!(out, "        }},").unwrap();
+    //             } else {
+    //                 writeln!(out, "        }}").unwrap();
+    //             }
+    //         }
+    //         writeln!(out, "      ],").unwrap();
+    //         writeln!(out, "      \"body\": {:?}", req.response_body).unwrap();
+    //         writeln!(out, "    }}").unwrap();
 
-//             if response_hdrs.peek().is_some() {
-//                 writeln!(out, "        }},").unwrap();
-//             } else {
-//                 writeln!(out, "        }}").unwrap();
-//             }
-//         }
-//         writeln!(out, "      ],").unwrap();
-//         writeln!(out, "      \"body\": {:?}", req.response_body).unwrap();
-//         writeln!(out, "    }}").unwrap();
+    //         if reqs.peek().is_some() {
+    //             writeln!(out, "}},").unwrap();
+    //         } else {
+    //             writeln!(out, "}}").unwrap();
+    //         }
+    //     }
+    //     writeln!(out, "]").unwrap();
+    //     writeln!(out, "}}").unwrap();
 
-//         if reqs.peek().is_some() {
-//             writeln!(out, "}},").unwrap();
-//         } else {
-//             writeln!(out, "}}").unwrap();
-//         }
-//     }
-//     writeln!(out, "]").unwrap();
-//     writeln!(out, "}}").unwrap();
+    //     output_sink(out);
+    // }
 
-//     output_sink(out);
-// }
+    // pub fn hdrs_to_strings(hdrs: &[quiche::h3::Header]) -> Vec<(String, String)> {
+    //     hdrs.iter()
+    //         .map(|h| {
+    //             let name = String::from_utf8_lossy(h.name()).to_string();
+    //             let value = String::from_utf8_lossy(h.value()).to_string();
 
-// pub fn hdrs_to_strings(hdrs: &[quiche::h3::Header]) -> Vec<(String, String)> {
-//     hdrs.iter()
-//         .map(|h| {
-//             let name = String::from_utf8_lossy(h.name()).to_string();
-//             let value = String::from_utf8_lossy(h.value()).to_string();
-
-//             (name, value)
-//         })
-//         .collect()
-// }
+    //             (name, value)
+    //         })
+    //         .collect()
+    // }
+*/
 
 /// Generate a new pair of Source Connection ID and reset token.
 pub fn generate_cid_and_reset_token<T: SecureRandom>(
@@ -271,99 +278,100 @@ pub fn generate_cid_and_reset_token<T: SecureRandom>(
     let reset_token = u128::from_be_bytes(reset_token);
     (scid, reset_token)
 }
+/*
+    /// Construct a priority field value from quiche apps custom query string.
+    // pub fn priority_field_value_from_query_string(url: &url::Url) -> Option<String> {
+    //     let mut priority = "".to_string();
+    //     for param in url.query_pairs() {
+    //         if param.0 == "u" {
+    //             write!(priority, "{}={},", param.0, param.1).ok();
+    //         }
 
-/// Construct a priority field value from quiche apps custom query string.
-// pub fn priority_field_value_from_query_string(url: &url::Url) -> Option<String> {
-//     let mut priority = "".to_string();
-//     for param in url.query_pairs() {
-//         if param.0 == "u" {
-//             write!(priority, "{}={},", param.0, param.1).ok();
-//         }
+    //         if param.0 == "i" && param.1 == "1" {
+    //             priority.push_str("i,");
+    //         }
+    //     }
 
-//         if param.0 == "i" && param.1 == "1" {
-//             priority.push_str("i,");
-//         }
-//     }
+    //     if !priority.is_empty() {
+    //         // remove trailing comma
+    //         priority.pop();
 
-//     if !priority.is_empty() {
-//         // remove trailing comma
-//         priority.pop();
+    //         Some(priority)
+    //     } else {
+    //         None
+    //     }
+    // }
 
-//         Some(priority)
-//     } else {
-//         None
-//     }
-// }
+    /// Construct a Priority from quiche apps custom query string.
+    // pub fn priority_from_query_string(url: &url::Url) -> Option<Priority> {
+    //     let mut urgency = None;
+    //     let mut incremental = None;
+    //     for param in url.query_pairs() {
+    //         if param.0 == "u" {
+    //             urgency = Some(param.1.parse::<u8>().unwrap());
+    //         }
 
-/// Construct a Priority from quiche apps custom query string.
-// pub fn priority_from_query_string(url: &url::Url) -> Option<Priority> {
-//     let mut urgency = None;
-//     let mut incremental = None;
-//     for param in url.query_pairs() {
-//         if param.0 == "u" {
-//             urgency = Some(param.1.parse::<u8>().unwrap());
-//         }
+    //         if param.0 == "i" && param.1 == "1" {
+    //             incremental = Some(true);
+    //         }
+    //     }
 
-//         if param.0 == "i" && param.1 == "1" {
-//             incremental = Some(true);
-//         }
-//     }
+    //     match (urgency, incremental) {
+    //         (Some(u), Some(i)) => Some(Priority::new(u, i)),
 
-//     match (urgency, incremental) {
-//         (Some(u), Some(i)) => Some(Priority::new(u, i)),
+    //         (Some(u), None) => Some(Priority::new(u, false)),
 
-//         (Some(u), None) => Some(Priority::new(u, false)),
+    //         (None, Some(i)) => Some(Priority::new(3, i)),
 
-//         (None, Some(i)) => Some(Priority::new(3, i)),
+    //         (None, None) => None,
+    //     }
+    // }
 
-//         (None, None) => None,
-//     }
-// }
+    // fn send_h3_dgram(
+    //     conn: &mut quiche::Connection, flow_id: u64, dgram_content: &[u8],
+    // ) -> quiche::Result<()> {
+    //     info!(
+    //         "sending HTTP/3 DATAGRAM on flow_id={} with data {:?}",
+    //         flow_id, dgram_content
+    //     );
 
-// fn send_h3_dgram(
-//     conn: &mut quiche::Connection, flow_id: u64, dgram_content: &[u8],
-// ) -> quiche::Result<()> {
-//     info!(
-//         "sending HTTP/3 DATAGRAM on flow_id={} with data {:?}",
-//         flow_id, dgram_content
-//     );
+    //     let len = octets::varint_len(flow_id) + dgram_content.len();
+    //     let mut d = vec![0; len];
+    //     let mut b = octets::OctetsMut::with_slice(&mut d);
 
-//     let len = octets::varint_len(flow_id) + dgram_content.len();
-//     let mut d = vec![0; len];
-//     let mut b = octets::OctetsMut::with_slice(&mut d);
+    //     b.put_varint(flow_id)
+    //         .map_err(|_| quiche::Error::BufferTooShort)?;
+    //     b.put_bytes(dgram_content)
+    //         .map_err(|_| quiche::Error::BufferTooShort)?;
 
-//     b.put_varint(flow_id)
-//         .map_err(|_| quiche::Error::BufferTooShort)?;
-//     b.put_bytes(dgram_content)
-//         .map_err(|_| quiche::Error::BufferTooShort)?;
+    //     conn.dgram_send(&d)
+    // }
 
-//     conn.dgram_send(&d)
-// }
+    // pub trait HttpConn {
+    //     fn send_requests(
+    //         &mut self, conn: &mut quiche::Connection, target_path: &Option<String>,
+    //     );
 
-// pub trait HttpConn {
-//     fn send_requests(
-//         &mut self, conn: &mut quiche::Connection, target_path: &Option<String>,
-//     );
+    //     fn handle_responses(
+    //         &mut self, conn: &mut quiche::Connection, buf: &mut [u8],
+    //         req_start: &std::time::Instant,
+    //     );
 
-//     fn handle_responses(
-//         &mut self, conn: &mut quiche::Connection, buf: &mut [u8],
-//         req_start: &std::time::Instant,
-//     );
+    //     fn report_incomplete(&self, start: &std::time::Instant) -> bool;
 
-//     fn report_incomplete(&self, start: &std::time::Instant) -> bool;
+    //     fn handle_requests(
+    //         &mut self, conn: &mut quiche::Connection,
+    //         partial_requests: &mut HashMap<u64, PartialRequest>,
+    //         partial_responses: &mut HashMap<u64, PartialResponse>, root: &str,
+    //         index: &str, buf: &mut [u8],
+    //     ) -> quiche::h3::Result<()>;
 
-//     fn handle_requests(
-//         &mut self, conn: &mut quiche::Connection,
-//         partial_requests: &mut HashMap<u64, PartialRequest>,
-//         partial_responses: &mut HashMap<u64, PartialResponse>, root: &str,
-//         index: &str, buf: &mut [u8],
-//     ) -> quiche::h3::Result<()>;
-
-//     fn handle_writable(
-//         &mut self, conn: &mut quiche::Connection,
-//         partial_responses: &mut HashMap<u64, PartialResponse>, stream_id: u64,
-//     );
-// }
+    //     fn handle_writable(
+    //         &mut self, conn: &mut quiche::Connection,
+    //         partial_responses: &mut HashMap<u64, PartialResponse>, stream_id: u64,
+    //     );
+    // }
+*/
 
 pub enum SQSHInitMode {
     SQSHInitNone,
@@ -380,6 +388,26 @@ impl Default for SQSHInitMode {
 }
 
 pub trait SQSHConn {
+    fn get_pair(&self) -> Option<&PtyPair>;
+    fn get_writer(&mut self) -> Option<&mut Box<(dyn std::io::Write + Send)>>;
+    fn get_reader(&mut self) -> Option<&mut Box<(dyn std::io::Read + Send)>>;
+
+    fn read(&mut self) -> usize;
+    fn write(&mut self) -> ();
+    
+    fn get_in_buf(&mut self) -> &mut [u8];
+    fn get_out_buf(&mut self) -> &mut [u8];
+    fn get_in_data(&self) -> &[u8];
+    fn get_out_data(&self) -> &[u8];
+    fn get_sid(&self) -> u64;
+    fn add_spos_in(&mut self, x: usize) -> usize;
+    fn sub_spos_in(&mut self, x: usize) -> usize;
+    fn add_spos_out(&mut self, x: usize) -> usize;
+    fn sub_spos_out(&mut self, x: usize) -> usize;
+    fn readx_in(&mut self, x: usize) -> ();
+    fn wrotex_in(&mut self, x: usize) -> ();
+    fn readx_out(&mut self, x: usize) -> ();
+    fn wrotex_out(&mut self, x: usize) -> ();
     // send_init - sends initial information for starting something at the server
     // can start just a command, a shell, or other.
     // can also provide options to go with what it wants to start (e.g. use a pseudoterminal or not)
@@ -397,11 +425,31 @@ pub struct SQSH1Conn {
     streamid: u64,
     // conn: quiche::Connection,
     connmode: SQSHInitMode,
-
+    in_buf: [u8; 65535],
+    out_buf: [u8; 65535],
+    in_buf_spos: usize,
+    in_dlen     :usize,
+    in_buf_epos: usize,
+    out_buf_spos: usize,
+    out_dlen     :usize,
+    out_buf_epos: usize,
+    rows: u16,
+    columns: u16,
+    pair: Option<PtyPair>,
+    writer: Option<Box<dyn Write + Send>>,
+    reader: Option<Box<dyn Read  + Send>>,
     //...
 
     // output_sink: Rc<RefCell<dyn FnMut(String)>>,
 }
+
+impl fmt::Debug for dyn SQSHConn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // todo!()
+        (*self).fmt(f)
+    }
+}
+
 
 pub fn writable_response_streams(
     conn: &quiche::Connection,
@@ -409,1332 +457,1470 @@ pub fn writable_response_streams(
     conn.writable().filter(|id| id % 4 == 0)
 }
 
-// impl Default for SQSH1Conn {
-//     fn default() -> Self {
-//         SQSH1Conn {
-//             streamid: Default::default(),
-//             conn: Default::default(),
-//             connmode: Default::default(),
-//         }
-//     }
-// }
-
 impl SQSH1Conn {
     pub fn with_init(
         // conn: &mut quiche::Connection, 
         top_stream_id: &mut u64, 
-        mode: SQSHInitMode, info: &Option<String>
+        mode: SQSHInitMode, info: &Option<String>,
+        rows: u16, cols: u16
     ) -> Box<dyn SQSHConn> {
         // self.conn = conn;
         *top_stream_id += 4;
-        let x = SQSH1Conn {
+        let pair = match mode {
+            SQSHInitMode::SQSHInitNone => None,
+            SQSHInitMode::SQSHInitOther => None,
+            SQSHInitMode::SQSHInitCommand => Some(make_pty_pair(rows, cols)),
+            SQSHInitMode::SQSHInitShell => Some(make_pty_pair(rows, cols)),
+            SQSHInitMode::SQSHInitSubsystem => None
+        };
+
+        
+
+        let mut x = SQSH1Conn {
             connmode: mode,
             // increment stream ID to next valid QUIC stream ID
             streamid: *top_stream_id,
             // conn: *conn,
+            in_buf      : [0; 65535],
+            out_buf     : [0; 65535],
+            in_buf_spos : 0,
+            in_dlen     : 0,
+            in_buf_epos : 65534,
+            out_buf_spos: 0,
+            out_dlen    : 0,
+            out_buf_epos: 65534,
+            rows        : rows,
+            columns     : cols,
+            pair        : pair,
+            writer      : None,
+            reader      : None
+            
+        };
+
+        let cmd: CommandBuilder = CommandBuilder::new("bash");
+
+
+        if let Some(p) = &mut x.pair {
+            p.slave.spawn_command(cmd).unwrap();
+            x.writer = Some(p.master.take_writer().unwrap());
+            x.reader = Some(p.master.try_clone_reader().unwrap());
         };
         Box::new(x)
     }
 }
 
 impl SQSHConn for SQSH1Conn{
-    // nothing
+    fn get_pair(&self) -> Option<&PtyPair> {
+        self.pair.as_ref()
+    }
+    fn get_writer(&mut self) -> Option<&mut Box<(dyn std::io::Write + Send)>> {
+        self.writer.as_mut()
+    }
+    fn get_reader(&mut self) -> Option<&mut Box<(dyn std::io::Read + Send)>> {
+        self.reader.as_mut()
+    }
+    fn read(&mut self) -> usize{
+        // let _: Result<(), io::Error> = read!(self.get_reader().unwrap(), "{}", String::from_utf8_lossy(self.get_out_buf()));
+        self.reader.as_mut().unwrap().read(self.out_buf[self.out_buf_spos..self.out_buf_epos].as_mut()).unwrap()
+    }
+    fn write(&mut self) -> (){
+        let _ = write!(self.writer.as_mut().unwrap(), "{}", String::from_utf8_lossy(self.in_buf[self.in_buf_spos..self.in_buf_epos].as_mut()));
+    }
+    fn get_sid(&self) -> u64{
+        self.streamid
+    }
+    fn get_in_buf(&mut self) -> &mut [u8] {
+        self.in_buf[self.in_buf_spos..self.in_buf_epos].as_mut()
+    }
+    fn get_out_buf(&mut self) -> &mut [u8] {
+        self.out_buf[self.out_buf_spos..self.out_buf_epos].as_mut()
+    }
+    fn get_in_data(&self) -> &[u8] {
+        self.in_buf[self.in_buf_spos..(self.in_buf_spos+self.in_dlen)].as_ref()
+    }
+    fn get_out_data(&self) -> &[u8] {
+        self.out_buf[self.out_buf_spos..(self.out_buf_spos+self.out_dlen)].as_ref()
+    }
+    fn add_spos_in(&mut self, x: usize) -> usize {
+        self.in_buf_spos += x;
+        self.in_buf_spos
+    }
+    fn sub_spos_in(&mut self, x: usize) -> usize {
+        self.in_buf_spos -= x;
+        self.in_buf_spos
+    }
+    fn add_spos_out(&mut self, x: usize) -> usize {
+        self.out_buf_spos += x;
+        self.out_buf_spos
+    }
+    fn sub_spos_out(&mut self, x: usize) -> usize {
+        self.out_buf_spos -= x;
+        self.out_buf_spos
+    }
+    fn readx_in(&mut self, x: usize) -> (){
+        self.in_buf_spos += x;
+        self.in_dlen -= x;
+    }
+    fn wrotex_in(&mut self, x: usize) -> (){
+        self.in_dlen += x;
+    }
+    fn readx_out(&mut self, x: usize) -> (){
+        self.out_buf_spos += x;
+        self.out_dlen -= x;
+    }
+    fn wrotex_out(&mut self, x: usize) -> (){
+        self.out_dlen += x;
+    }
+
+
+    // fn write_in_buf(&self) -> Option<&PtyPair> {
+    //     self.pair.as_ref()
+    // }
+    // fn read_in_buf(&self) -> Option<&PtyPair> {
+    //     self.pair.as_ref()
+    // }
+    // fn write_out_buf(&self) -> Option<&PtyPair> {
+    //     self.pair.as_ref()
+    // }
+    // fn read_out_buf(&self) -> Option<&PtyPair> {
+    //     self.pair.as_ref()
+    // }
 }
 
-// Represents an HTTP/0.9 formatted request.
-// pub struct Http09Request {
-//     url: url::Url,
-//     cardinal: u64,
-//     request_line: String,
-//     stream_id: Option<u64>,
-//     response_writer: Option<std::io::BufWriter<std::fs::File>>,
-// }
-
-// Represents an HTTP/3 formatted request.
-// struct Http3Request {
-//     url: url::Url,
-//     cardinal: u64,
-//     stream_id: Option<u64>,
-//     hdrs: Vec<quiche::h3::Header>,
-//     priority: Option<Priority>,
-//     response_hdrs: Vec<quiche::h3::Header>,
-//     response_body: Vec<u8>,
-//     response_body_max: usize,
-//     response_writer: Option<std::io::BufWriter<std::fs::File>>,
-// }
-
-// type Http3ResponseBuilderResult = std::result::Result<
-//     (Vec<quiche::h3::Header>, Vec<u8>, Vec<u8>),
-//     (u64, String),
-// >;
-
-// pub struct Http09Conn {
-//     stream_id: u64,
-//     reqs_sent: usize,
-//     reqs_complete: usize,
-//     reqs: Vec<Http09Request>,
-//     output_sink: Rc<RefCell<dyn FnMut(String)>>,
-// }
-
-// impl Default for Http09Conn {
-//     fn default() -> Self {
-//         Http09Conn {
-//             stream_id: Default::default(),
-//             reqs_sent: Default::default(),
-//             reqs_complete: Default::default(),
-//             reqs: Default::default(),
-//             output_sink: Rc::new(RefCell::new(stdout_sink)),
-//         }
-//     }
-// }
-
-// impl Http09Conn {
-//     pub fn with_urls(
-//         urls: &[url::Url], reqs_cardinal: u64,
-//         output_sink: Rc<RefCell<dyn FnMut(String)>>,
-//     ) -> Box<dyn HttpConn> {
-//         let mut reqs = Vec::new();
-//         for url in urls {
-//             for i in 1..=reqs_cardinal {
-//                 let request_line = format!("GET {}\r\n", url.path());
-//                 reqs.push(Http09Request {
-//                     url: url.clone(),
-//                     cardinal: i,
-//                     request_line,
-//                     stream_id: None,
-//                     response_writer: None,
-//                 });
-//             }
-//         }
-
-//         let h_conn = Http09Conn {
-//             stream_id: 0,
-//             reqs_sent: 0,
-//             reqs_complete: 0,
-//             reqs,
-//             output_sink,
-//         };
-
-//         Box::new(h_conn)
-//     }
-// }
-
-// impl HttpConn for Http09Conn {
-//     fn send_requests(
-//         &mut self, conn: &mut quiche::Connection, target_path: &Option<String>,
-//     ) {
-//         let mut reqs_done = 0;
-
-//         for req in self.reqs.iter_mut().skip(self.reqs_sent) {
-//             match conn.stream_send(
-//                 self.stream_id,
-//                 req.request_line.as_bytes(),
-//                 true,
-//             ) {
-//                 Ok(v) => v,
-
-//                 Err(quiche::Error::StreamLimit) => {
-//                     debug!("not enough stream credits, retry later...");
-//                     break;
-//                 },
-
-//                 Err(e) => {
-//                     error!("failed to send request {:?}", e);
-//                     break;
-//                 },
-//             };
-
-//             debug!("sending HTTP request {:?}", req.request_line);
-
-//             req.stream_id = Some(self.stream_id);
-//             req.response_writer =
-//                 make_resource_writer(&req.url, target_path, req.cardinal);
-
-//             self.stream_id += 4;
-
-//             reqs_done += 1;
-//         }
-
-//         self.reqs_sent += reqs_done;
-//     }
-
-//     fn handle_responses(
-//         &mut self, conn: &mut quiche::Connection, buf: &mut [u8],
-//         req_start: &std::time::Instant,
-//     ) {
-//         // Process all readable streams.
-//         for s in conn.readable() {
-//             while let Ok((read, fin)) = conn.stream_recv(s, buf) {
-//                 trace!("received {} bytes", read);
-
-//                 let stream_buf = &buf[..read];
-
-//                 trace!(
-//                     "stream {} has {} bytes (fin? {})",
-//                     s,
-//                     stream_buf.len(),
-//                     fin
-//                 );
-
-//                 let req = self
-//                     .reqs
-//                     .iter_mut()
-//                     .find(|r| r.stream_id == Some(s))
-//                     .unwrap();
-
-//                 match &mut req.response_writer {
-//                     Some(rw) => {
-//                         rw.write_all(&buf[..read]).ok();
-//                     },
-
-//                     None => {
-//                         self.output_sink.borrow_mut()(unsafe {
-//                             String::from_utf8_unchecked(stream_buf.to_vec())
-//                         });
-//                     },
-//                 }
-
-//                 // The server reported that it has no more data to send on
-//                 // a client-initiated
-//                 // bidirectional stream, which means
-//                 // we got the full response. If all responses are received
-//                 // then close the connection.
-//                 if &s % 4 == 0 && fin {
-//                     self.reqs_complete += 1;
-//                     let reqs_count = self.reqs.len();
-
-//                     debug!(
-//                         "{}/{} responses received",
-//                         self.reqs_complete, reqs_count
-//                     );
-
-//                     if self.reqs_complete == reqs_count {
-//                         info!(
-//                             "{}/{} response(s) received in {:?}, closing...",
-//                             self.reqs_complete,
-//                             reqs_count,
-//                             req_start.elapsed()
-//                         );
-
-//                         match conn.close(true, 0x00, b"kthxbye") {
-//                             // Already closed.
-//                             Ok(_) | Err(quiche::Error::Done) => (),
-
-//                             Err(e) => panic!("error closing conn: {:?}", e),
-//                         }
-
-//                         break;
-//                     }
-//                 }
-//             }
-//         }
-//     }
-
-//     fn report_incomplete(&self, start: &std::time::Instant) -> bool {
-//         if self.reqs_complete != self.reqs.len() {
-//             error!(
-//                 "connection timed out after {:?} and only completed {}/{} requests",
-//                 start.elapsed(),
-//                 self.reqs_complete,
-//                 self.reqs.len()
-//             );
-
-//             return true;
-//         }
-
-//         false
-//     }
-
-//     fn handle_requests(
-//         &mut self, conn: &mut quiche::Connection,
-//         partial_requests: &mut HashMap<u64, PartialRequest>,
-//         partial_responses: &mut HashMap<u64, PartialResponse>, root: &str,
-//         index: &str, buf: &mut [u8],
-//     ) -> quiche::h3::Result<()> {
-//         // Process all readable streams.
-//         for s in conn.readable() {
-//             while let Ok((read, fin)) = conn.stream_recv(s, buf) {
-//                 trace!("{} received {} bytes", conn.trace_id(), read);
-
-//                 let stream_buf = &buf[..read];
-
-//                 trace!(
-//                     "{} stream {} has {} bytes (fin? {})",
-//                     conn.trace_id(),
-//                     s,
-//                     stream_buf.len(),
-//                     fin
-//                 );
-
-//                 let stream_buf =
-//                     if let Some(partial) = partial_requests.get_mut(&s) {
-//                         partial.req.extend_from_slice(stream_buf);
-
-//                         if !partial.req.ends_with(b"\r\n") {
-//                             return Ok(());
-//                         }
-
-//                         &partial.req
-//                     } else {
-//                         if !stream_buf.ends_with(b"\r\n") {
-//                             let request = PartialRequest {
-//                                 req: stream_buf.to_vec(),
-//                             };
-
-//                             partial_requests.insert(s, request);
-//                             return Ok(());
-//                         }
-
-//                         stream_buf
-//                     };
-
-//                 if stream_buf.starts_with(b"GET ") {
-//                     let uri = &stream_buf[4..stream_buf.len() - 2];
-//                     let uri = String::from_utf8(uri.to_vec()).unwrap();
-//                     let uri = String::from(uri.lines().next().unwrap());
-//                     let uri = path::Path::new(&uri);
-//                     let mut path = path::PathBuf::from(root);
-
-//                     partial_requests.remove(&s);
-
-//                     for c in uri.components() {
-//                         if let path::Component::Normal(v) = c {
-//                             path.push(v)
-//                         }
-//                     }
-
-//                     path = autoindex(path, index);
-
-//                     info!(
-//                         "{} got GET request for {:?} on stream {}",
-//                         conn.trace_id(),
-//                         path,
-//                         s
-//                     );
-
-//                     let body = std::fs::read(path.as_path())
-//                         .unwrap_or_else(|_| b"Not Found!\r\n".to_vec());
-
-//                     info!(
-//                         "{} sending response of size {} on stream {}",
-//                         conn.trace_id(),
-//                         body.len(),
-//                         s
-//                     );
-
-//                     let written = match conn.stream_send(s, &body, true) {
-//                         Ok(v) => v,
-
-//                         Err(quiche::Error::Done) => 0,
-
-//                         Err(e) => {
-//                             error!(
-//                                 "{} stream send failed {:?}",
-//                                 conn.trace_id(),
-//                                 e
-//                             );
-//                             return Err(From::from(e));
-//                         },
-//                     };
-
-//                     if written < body.len() {
-//                         let response = PartialResponse {
-//                             headers: None,
-//                             priority: None,
-//                             body,
-//                             written,
-//                         };
-
-//                         partial_responses.insert(s, response);
-//                     }
-//                 }
-//             }
-//         }
-
-//         Ok(())
-//     }
-
-//     fn handle_writable(
-//         &mut self, conn: &mut quiche::Connection,
-//         partial_responses: &mut HashMap<u64, PartialResponse>, stream_id: u64,
-//     ) {
-//         debug!(
-//             "{} response stream {} is writable with capacity {:?}",
-//             conn.trace_id(),
-//             stream_id,
-//             conn.stream_capacity(stream_id)
-//         );
-
-//         if !partial_responses.contains_key(&stream_id) {
-//             return;
-//         }
-
-//         let resp = partial_responses.get_mut(&stream_id).unwrap();
-//         let body = &resp.body[resp.written..];
-
-//         let written = match conn.stream_send(stream_id, body, true) {
-//             Ok(v) => v,
-
-//             Err(quiche::Error::Done) => 0,
-
-//             Err(e) => {
-//                 partial_responses.remove(&stream_id);
-
-//                 error!("{} stream send failed {:?}", conn.trace_id(), e);
-//                 return;
-//             },
-//         };
-
-//         resp.written += written;
-
-//         if resp.written == resp.body.len() {
-//             partial_responses.remove(&stream_id);
-//         }
-//     }
-// }
-
-// pub struct Http3DgramSender {
-//     dgram_count: u64,
-//     pub dgram_content: String,
-//     pub flow_id: u64,
-//     pub dgrams_sent: u64,
-// }
-
-// impl Http3DgramSender {
-//     pub fn new(dgram_count: u64, dgram_content: String, flow_id: u64) -> Self {
-//         Self {
-//             dgram_count,
-//             dgram_content,
-//             flow_id,
-//             dgrams_sent: 0,
-//         }
-//     }
-// }
-
-// fn make_h3_config(
-//     max_field_section_size: Option<u64>, qpack_max_table_capacity: Option<u64>,
-//     qpack_blocked_streams: Option<u64>,
-// ) -> quiche::h3::Config {
-//     let mut config = quiche::h3::Config::new().unwrap();
-
-//     if let Some(v) = max_field_section_size {
-//         config.set_max_field_section_size(v);
-//     }
-
-//     if let Some(v) = qpack_max_table_capacity {
-//         // quiche doesn't support dynamic QPACK, so clamp to 0 for now.
-//         config.set_qpack_max_table_capacity(v.clamp(0, 0));
-//     }
-
-//     if let Some(v) = qpack_blocked_streams {
-//         // quiche doesn't support dynamic QPACK, so clamp to 0 for now.
-//         config.set_qpack_blocked_streams(v.clamp(0, 0));
-//     }
-
-//     config
-// }
-
-// pub struct Http3Conn {
-//     h3_conn: quiche::h3::Connection,
-//     reqs_hdrs_sent: usize,
-//     reqs_complete: usize,
-//     largest_processed_request: u64,
-//     reqs: Vec<Http3Request>,
-//     body: Option<Vec<u8>>,
-//     sent_body_bytes: HashMap<u64, usize>,
-//     dump_json: bool,
-//     dgram_sender: Option<Http3DgramSender>,
-//     output_sink: Rc<RefCell<dyn FnMut(String)>>,
-// }
-
-// impl Http3Conn {
-//     #[allow(clippy::too_many_arguments)]
-//     pub fn with_urls(
-//         conn: &mut quiche::Connection, urls: &[url::Url], reqs_cardinal: u64,
-//         req_headers: &[String], body: &Option<Vec<u8>>, method: &str,
-//         send_priority_update: bool, max_field_section_size: Option<u64>,
-//         qpack_max_table_capacity: Option<u64>,
-//         qpack_blocked_streams: Option<u64>, dump_json: Option<usize>,
-//         dgram_sender: Option<Http3DgramSender>,
-//         output_sink: Rc<RefCell<dyn FnMut(String)>>,
-//     ) -> Box<dyn HttpConn> {
-//         let mut reqs = Vec::new();
-//         for url in urls {
-//             for i in 1..=reqs_cardinal {
-//                 let authority = match url.port() {
-//                     Some(port) => format!("{}:{}", url.host_str().unwrap(), port),
-
-//                     None => url.host_str().unwrap().to_string(),
-//                 };
-
-//                 let mut hdrs = vec![
-//                     quiche::h3::Header::new(b":method", method.as_bytes()),
-//                     quiche::h3::Header::new(b":scheme", url.scheme().as_bytes()),
-//                     quiche::h3::Header::new(b":authority", authority.as_bytes()),
-//                     quiche::h3::Header::new(
-//                         b":path",
-//                         url[url::Position::BeforePath..].as_bytes(),
-//                     ),
-//                     quiche::h3::Header::new(b"user-agent", b"quiche"),
-//                 ];
-
-//                 let priority = if send_priority_update {
-//                     priority_from_query_string(url)
-//                 } else {
-//                     None
-//                 };
-
-//                 // Add custom headers to the request.
-//                 for header in req_headers {
-//                     let header_split: Vec<&str> =
-//                         header.splitn(2, ": ").collect();
-
-//                     if header_split.len() != 2 {
-//                         panic!("malformed header provided - \"{}\"", header);
-//                     }
-
-//                     hdrs.push(quiche::h3::Header::new(
-//                         header_split[0].as_bytes(),
-//                         header_split[1].as_bytes(),
-//                     ));
-//                 }
-
-//                 if body.is_some() {
-//                     hdrs.push(quiche::h3::Header::new(
-//                         b"content-length",
-//                         body.as_ref().unwrap().len().to_string().as_bytes(),
-//                     ));
-//                 }
-
-//                 reqs.push(Http3Request {
-//                     url: url.clone(),
-//                     cardinal: i,
-//                     hdrs,
-//                     priority,
-//                     response_hdrs: Vec::new(),
-//                     response_body: Vec::new(),
-//                     response_body_max: dump_json.unwrap_or_default(),
-//                     stream_id: None,
-//                     response_writer: None,
-//                 });
-//             }
-//         }
-
-//         let h_conn = Http3Conn {
-//             h3_conn: quiche::h3::Connection::with_transport(
-//                 conn,
-//                 &make_h3_config(
-//                     max_field_section_size,
-//                     qpack_max_table_capacity,
-//                     qpack_blocked_streams,
-//                 ),
-//             ).expect("Unable to create HTTP/3 connection, check the server's uni stream limit and window size"),
-//             reqs_hdrs_sent: 0,
-//             reqs_complete: 0,
-//             largest_processed_request: 0,
-//             reqs,
-//             body: body.as_ref().map(|b| b.to_vec()),
-//             sent_body_bytes: HashMap::new(),
-//             dump_json: dump_json.is_some(),
-//             dgram_sender,
-//             output_sink,
-//         };
-
-//         Box::new(h_conn)
-//     }
-
-//     pub fn with_conn(
-//         conn: &mut quiche::Connection, max_field_section_size: Option<u64>,
-//         qpack_max_table_capacity: Option<u64>,
-//         qpack_blocked_streams: Option<u64>,
-//         dgram_sender: Option<Http3DgramSender>,
-//         output_sink: Rc<RefCell<dyn FnMut(String)>>,
-//     ) -> std::result::Result<Box<dyn HttpConn>, String> {
-//         let h3_conn = quiche::h3::Connection::with_transport(
-//             conn,
-//             &make_h3_config(
-//                 max_field_section_size,
-//                 qpack_max_table_capacity,
-//                 qpack_blocked_streams,
-//             ),
-//         ).map_err(|_| "Unable to create HTTP/3 connection, check the client's uni stream limit and window size")?;
-
-//         let h_conn = Http3Conn {
-//             h3_conn,
-//             reqs_hdrs_sent: 0,
-//             reqs_complete: 0,
-//             largest_processed_request: 0,
-//             reqs: Vec::new(),
-//             body: None,
-//             sent_body_bytes: HashMap::new(),
-//             dump_json: false,
-//             dgram_sender,
-//             output_sink,
-//         };
-
-//         Ok(Box::new(h_conn))
-//     }
-
-//     /// Builds an HTTP/3 response given a request.
-//     fn build_h3_response(
-//         root: &str, index: &str, request: &[quiche::h3::Header],
-//     ) -> Http3ResponseBuilderResult {
-//         let mut file_path = path::PathBuf::from(root);
-//         let mut scheme = None;
-//         let mut authority = None;
-//         let mut host = None;
-//         let mut path = None;
-//         let mut method = None;
-//         let mut priority = vec![];
-
-//         // Parse some of the request headers.
-//         for hdr in request {
-//             match hdr.name() {
-//                 b":scheme" => {
-//                     if scheme.is_some() {
-//                         return Err((
-//                             H3_MESSAGE_ERROR,
-//                             ":scheme cannot be duplicated".to_string(),
-//                         ));
-//                     }
-
-//                     scheme = Some(std::str::from_utf8(hdr.value()).unwrap());
-//                 },
-
-//                 b":authority" => {
-//                     if authority.is_some() {
-//                         return Err((
-//                             H3_MESSAGE_ERROR,
-//                             ":authority cannot be duplicated".to_string(),
-//                         ));
-//                     }
-
-//                     authority = Some(std::str::from_utf8(hdr.value()).unwrap());
-//                 },
-
-//                 b":path" => {
-//                     if path.is_some() {
-//                         return Err((
-//                             H3_MESSAGE_ERROR,
-//                             ":path cannot be duplicated".to_string(),
-//                         ));
-//                     }
-
-//                     path = Some(std::str::from_utf8(hdr.value()).unwrap())
-//                 },
-
-//                 b":method" => {
-//                     if method.is_some() {
-//                         return Err((
-//                             H3_MESSAGE_ERROR,
-//                             ":method cannot be duplicated".to_string(),
-//                         ));
-//                     }
-
-//                     method = Some(std::str::from_utf8(hdr.value()).unwrap())
-//                 },
-
-//                 b":protocol" => {
-//                     return Err((
-//                         H3_MESSAGE_ERROR,
-//                         ":protocol not supported".to_string(),
-//                     ));
-//                 },
-
-//                 b"priority" => priority = hdr.value().to_vec(),
-
-//                 b"host" => host = Some(std::str::from_utf8(hdr.value()).unwrap()),
-
-//                 _ => (),
-//             }
-//         }
-
-//         let decided_method = match method {
-//             Some(method) => {
-//                 match method {
-//                     "" =>
-//                         return Err((
-//                             H3_MESSAGE_ERROR,
-//                             ":method value cannot be empty".to_string(),
-//                         )),
-
-//                     "CONNECT" => {
-//                         // not allowed
-//                         let headers = vec![
-//                             quiche::h3::Header::new(
-//                                 b":status",
-//                                 "405".to_string().as_bytes(),
-//                             ),
-//                             quiche::h3::Header::new(b"server", b"quiche"),
-//                         ];
-
-//                         return Ok((headers, b"".to_vec(), Default::default()));
-//                     },
-
-//                     _ => method,
-//                 }
-//             },
-
-//             None =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":method cannot be missing".to_string(),
-//                 )),
-//         };
-
-//         let decided_scheme = match scheme {
-//             Some(scheme) => {
-//                 if scheme != "http" && scheme != "https" {
-//                     let headers = vec![
-//                         quiche::h3::Header::new(
-//                             b":status",
-//                             "400".to_string().as_bytes(),
-//                         ),
-//                         quiche::h3::Header::new(b"server", b"quiche"),
-//                     ];
-
-//                     return Ok((
-//                         headers,
-//                         b"Invalid scheme".to_vec(),
-//                         Default::default(),
-//                     ));
-//                 }
-
-//                 scheme
-//             },
-
-//             None =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":scheme cannot be missing".to_string(),
-//                 )),
-//         };
-
-//         let decided_host = match (authority, host) {
-//             (None, Some("")) =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     "host value cannot be empty".to_string(),
-//                 )),
-
-//             (Some(""), None) =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":authority value cannot be empty".to_string(),
-//                 )),
-
-//             (Some(""), Some("")) =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":authority and host value cannot be empty".to_string(),
-//                 )),
-
-//             (None, None) =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":authority and host missing".to_string(),
-//                 )),
-
-//             // Any other combo, prefer :authority
-//             (..) => authority.unwrap(),
-//         };
-
-//         let decided_path = match path {
-//             Some("") =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":path value cannot be empty".to_string(),
-//                 )),
-
-//             None =>
-//                 return Err((
-//                     H3_MESSAGE_ERROR,
-//                     ":path cannot be missing".to_string(),
-//                 )),
-
-//             Some(path) => path,
-//         };
-
-//         let url = format!("{decided_scheme}://{decided_host}{decided_path}");
-//         let url = url::Url::parse(&url).unwrap();
-
-//         let pathbuf = path::PathBuf::from(url.path());
-//         let pathbuf = autoindex(pathbuf, index);
-
-//         // Priority query string takes precedence over the header.
-//         // So replace the header with one built here.
-//         let query_priority = priority_field_value_from_query_string(&url);
-
-//         if let Some(p) = query_priority {
-//             priority = p.as_bytes().to_vec();
-//         }
-
-//         let (status, body) = match decided_method {
-//             "GET" => {
-//                 for c in pathbuf.components() {
-//                     if let path::Component::Normal(v) = c {
-//                         file_path.push(v)
-//                     }
-//                 }
-
-//                 match std::fs::read(file_path.as_path()) {
-//                     Ok(data) => (200, data),
-
-//                     Err(_) => (404, b"Not Found!".to_vec()),
-//                 }
-//             },
-
-//             _ => (405, Vec::new()),
-//         };
-
-//         let headers = vec![
-//             quiche::h3::Header::new(b":status", status.to_string().as_bytes()),
-//             quiche::h3::Header::new(b"server", b"quiche"),
-//             quiche::h3::Header::new(
-//                 b"content-length",
-//                 body.len().to_string().as_bytes(),
-//             ),
-//         ];
-
-//         Ok((headers, body, priority))
-//     }
-// }
-
-// impl HttpConn for Http3Conn {
-//     fn send_requests(
-//         &mut self, conn: &mut quiche::Connection, target_path: &Option<String>,
-//     ) {
-//         let mut reqs_done = 0;
-
-//         // First send headers.
-//         for req in self.reqs.iter_mut().skip(self.reqs_hdrs_sent) {
-//             let s = match self.h3_conn.send_request(
-//                 conn,
-//                 &req.hdrs,
-//                 self.body.is_none(),
-//             ) {
-//                 Ok(v) => v,
-
-//                 Err(quiche::h3::Error::TransportError(
-//                     quiche::Error::StreamLimit,
-//                 )) => {
-//                     debug!("not enough stream credits, retry later...");
-//                     break;
-//                 },
-
-//                 Err(quiche::h3::Error::StreamBlocked) => {
-//                     debug!("stream is blocked, retry later...");
-//                     break;
-//                 },
-
-//                 Err(e) => {
-//                     error!("failed to send request {:?}", e);
-//                     break;
-//                 },
-//             };
-
-//             debug!("Sent HTTP request {:?}", &req.hdrs);
-
-//             if let Some(priority) = &req.priority {
-//                 // If sending the priority fails, don't try again.
-//                 self.h3_conn
-//                     .send_priority_update_for_request(conn, s, priority)
-//                     .ok();
-//             }
-
-//             req.stream_id = Some(s);
-//             req.response_writer =
-//                 make_resource_writer(&req.url, target_path, req.cardinal);
-//             self.sent_body_bytes.insert(s, 0);
-
-//             reqs_done += 1;
-//         }
-//         self.reqs_hdrs_sent += reqs_done;
-
-//         // Then send any remaining body.
-//         if let Some(body) = &self.body {
-//             for (stream_id, sent_bytes) in self.sent_body_bytes.iter_mut() {
-//                 if *sent_bytes == body.len() {
-//                     continue;
-//                 }
-
-//                 // Always try to send all remaining bytes, so always set fin to
-//                 // true.
-//                 let sent = match self.h3_conn.send_body(
-//                     conn,
-//                     *stream_id,
-//                     &body[*sent_bytes..],
-//                     true,
-//                 ) {
-//                     Ok(v) => v,
-
-//                     Err(quiche::h3::Error::Done) => 0,
-
-//                     Err(e) => {
-//                         error!("failed to send request body {:?}", e);
-//                         continue;
-//                     },
-//                 };
-
-//                 *sent_bytes += sent;
-//             }
-//         }
-
-//         // And finally any DATAGRAMS.
-//         if let Some(ds) = self.dgram_sender.as_mut() {
-//             let mut dgrams_done = 0;
-
-//             for _ in ds.dgrams_sent..ds.dgram_count {
-//                 match send_h3_dgram(conn, ds.flow_id, ds.dgram_content.as_bytes())
-//                 {
-//                     Ok(v) => v,
-
-//                     Err(e) => {
-//                         error!("failed to send dgram {:?}", e);
-//                         break;
-//                     },
-//                 }
-
-//                 dgrams_done += 1;
-//             }
-
-//             ds.dgrams_sent += dgrams_done;
-//         }
-//     }
-
-//     fn handle_responses(
-//         &mut self, conn: &mut quiche::Connection, buf: &mut [u8],
-//         req_start: &std::time::Instant,
-//     ) {
-//         loop {
-//             match self.h3_conn.poll(conn) {
-//                 Ok((stream_id, quiche::h3::Event::Headers { list, .. })) => {
-//                     debug!(
-//                         "got response headers {:?} on stream id {}",
-//                         hdrs_to_strings(&list),
-//                         stream_id
-//                     );
-
-//                     let req = self
-//                         .reqs
-//                         .iter_mut()
-//                         .find(|r| r.stream_id == Some(stream_id))
-//                         .unwrap();
-
-//                     req.response_hdrs = list;
-//                 },
-
-//                 Ok((stream_id, quiche::h3::Event::Data)) => {
-//                     while let Ok(read) =
-//                         self.h3_conn.recv_body(conn, stream_id, buf)
-//                     {
-//                         debug!(
-//                             "got {} bytes of response data on stream {}",
-//                             read, stream_id
-//                         );
-
-//                         let req = self
-//                             .reqs
-//                             .iter_mut()
-//                             .find(|r| r.stream_id == Some(stream_id))
-//                             .unwrap();
-
-//                         let len = std::cmp::min(
-//                             read,
-//                             req.response_body_max - req.response_body.len(),
-//                         );
-//                         req.response_body.extend_from_slice(&buf[..len]);
-
-//                         match &mut req.response_writer {
-//                             Some(rw) => {
-//                                 rw.write_all(&buf[..read]).ok();
-//                             },
-
-//                             None =>
-//                                 if !self.dump_json {
-//                                     self.output_sink.borrow_mut()(unsafe {
-//                                         String::from_utf8_unchecked(
-//                                             buf[..read].to_vec(),
-//                                         )
-//                                     });
-//                                 },
-//                         }
-//                     }
-//                 },
-
-//                 Ok((_stream_id, quiche::h3::Event::Finished)) => {
-//                     self.reqs_complete += 1;
-//                     let reqs_count = self.reqs.len();
-
-//                     debug!(
-//                         "{}/{} responses received",
-//                         self.reqs_complete, reqs_count
-//                     );
-
-//                     if self.reqs_complete == reqs_count {
-//                         info!(
-//                             "{}/{} response(s) received in {:?}, closing...",
-//                             self.reqs_complete,
-//                             reqs_count,
-//                             req_start.elapsed()
-//                         );
-
-//                         if self.dump_json {
-//                             dump_json(
-//                                 &self.reqs,
-//                                 &mut *self.output_sink.borrow_mut(),
-//                             );
-//                         }
-
-//                         match conn.close(true, 0x100, b"kthxbye") {
-//                             // Already closed.
-//                             Ok(_) | Err(quiche::Error::Done) => (),
-
-//                             Err(e) => panic!("error closing conn: {:?}", e),
-//                         }
-
-//                         break;
-//                     }
-//                 },
-
-//                 Ok((_stream_id, quiche::h3::Event::Reset(e))) => {
-//                     error!("request was reset by peer with {}, closing...", e);
-
-//                     match conn.close(true, 0x100, b"kthxbye") {
-//                         // Already closed.
-//                         Ok(_) | Err(quiche::Error::Done) => (),
-
-//                         Err(e) => panic!("error closing conn: {:?}", e),
-//                     }
-
-//                     break;
-//                 },
-
-//                 Ok((
-//                     prioritized_element_id,
-//                     quiche::h3::Event::PriorityUpdate,
-//                 )) => {
-//                     info!(
-//                         "{} PRIORITY_UPDATE triggered for element ID={}",
-//                         conn.trace_id(),
-//                         prioritized_element_id
-//                     );
-//                 },
-
-//                 Ok((goaway_id, quiche::h3::Event::GoAway)) => {
-//                     info!(
-//                         "{} got GOAWAY with ID {} ",
-//                         conn.trace_id(),
-//                         goaway_id
-//                     );
-//                 },
-
-//                 Err(quiche::h3::Error::Done) => {
-//                     break;
-//                 },
-
-//                 Err(e) => {
-//                     error!("HTTP/3 processing failed: {:?}", e);
-
-//                     break;
-//                 },
-//             }
-//         }
-
-//         // Process datagram-related events.
-//         while let Ok(len) = conn.dgram_recv(buf) {
-//             let mut b = octets::Octets::with_slice(buf);
-//             if let Ok(flow_id) = b.get_varint() {
-//                 info!(
-//                     "Received DATAGRAM flow_id={} len={} data={:?}",
-//                     flow_id,
-//                     len,
-//                     buf[b.off()..len].to_vec()
-//                 );
-//             }
-//         }
-//     }
-
-//     fn report_incomplete(&self, start: &std::time::Instant) -> bool {
-//         if self.reqs_complete != self.reqs.len() {
-//             error!(
-//                 "connection timed out after {:?} and only completed {}/{} requests",
-//                 start.elapsed(),
-//                 self.reqs_complete,
-//                 self.reqs.len()
-//             );
-
-//             if self.dump_json {
-//                 dump_json(&self.reqs, &mut *self.output_sink.borrow_mut());
-//             }
-
-//             return true;
-//         }
-
-//         false
-//     }
-
-//     fn handle_requests(
-//         &mut self, conn: &mut quiche::Connection,
-//         _partial_requests: &mut HashMap<u64, PartialRequest>,
-//         partial_responses: &mut HashMap<u64, PartialResponse>, root: &str,
-//         index: &str, buf: &mut [u8],
-//     ) -> quiche::h3::Result<()> {
-//         // Process HTTP stream-related events.
-//         //
-//         // This loops over any and all received HTTP requests and sends just the
-//         // HTTP response headers.
-//         loop {
-//             match self.h3_conn.poll(conn) {
-//                 Ok((stream_id, quiche::h3::Event::Headers { list, .. })) => {
-//                     info!(
-//                         "{} got request {:?} on stream id {}",
-//                         conn.trace_id(),
-//                         hdrs_to_strings(&list),
-//                         stream_id
-//                     );
-
-//                     self.largest_processed_request =
-//                         std::cmp::max(self.largest_processed_request, stream_id);
-
-//                     // We decide the response based on headers alone, so
-//                     // stop reading the request stream so that any body
-//                     // is ignored and pointless Data events are not
-//                     // generated.
-//                     conn.stream_shutdown(stream_id, quiche::Shutdown::Read, 0)
-//                         .unwrap();
-
-//                     let (mut headers, body, mut priority) =
-//                         match Http3Conn::build_h3_response(root, index, &list) {
-//                             Ok(v) => v,
-
-//                             Err((error_code, _)) => {
-//                                 conn.stream_shutdown(
-//                                     stream_id,
-//                                     quiche::Shutdown::Write,
-//                                     error_code,
-//                                 )
-//                                 .unwrap();
-//                                 continue;
-//                             },
-//                         };
-
-//                     match self.h3_conn.take_last_priority_update(stream_id) {
-//                         Ok(v) => {
-//                             priority = v;
-//                         },
-
-//                         Err(quiche::h3::Error::Done) => (),
-
-//                         Err(e) => error!(
-//                             "{} error taking PRIORITY_UPDATE {}",
-//                             conn.trace_id(),
-//                             e
-//                         ),
-//                     }
-
-//                     if !priority.is_empty() {
-//                         headers.push(quiche::h3::Header::new(
-//                             b"priority",
-//                             priority.as_slice(),
-//                         ));
-//                     }
-
-//                     #[cfg(feature = "sfv")]
-//                     let priority =
-//                         quiche::h3::Priority::try_from(priority.as_slice())
-//                             .unwrap_or_default();
-
-//                     #[cfg(not(feature = "sfv"))]
-//                     let priority = quiche::h3::Priority::default();
-
-//                     info!(
-//                         "{} prioritizing response on stream {} as {:?}",
-//                         conn.trace_id(),
-//                         stream_id,
-//                         priority
-//                     );
-
-//                     match self.h3_conn.send_response_with_priority(
-//                         conn, stream_id, &headers, &priority, false,
-//                     ) {
-//                         Ok(v) => v,
-
-//                         Err(quiche::h3::Error::StreamBlocked) => {
-//                             let response = PartialResponse {
-//                                 headers: Some(headers),
-//                                 priority: Some(priority),
-//                                 body,
-//                                 written: 0,
-//                             };
-
-//                             partial_responses.insert(stream_id, response);
-//                             continue;
-//                         },
-
-//                         Err(e) => {
-//                             error!(
-//                                 "{} stream send failed {:?}",
-//                                 conn.trace_id(),
-//                                 e
-//                             );
-
-//                             break;
-//                         },
-//                     }
-
-//                     let response = PartialResponse {
-//                         headers: None,
-//                         priority: None,
-//                         body,
-//                         written: 0,
-//                     };
-
-//                     partial_responses.insert(stream_id, response);
-//                 },
-
-//                 Ok((stream_id, quiche::h3::Event::Data)) => {
-//                     info!(
-//                         "{} got data on stream id {}",
-//                         conn.trace_id(),
-//                         stream_id
-//                     );
-//                 },
-
-//                 Ok((_stream_id, quiche::h3::Event::Finished)) => (),
-
-//                 Ok((_stream_id, quiche::h3::Event::Reset { .. })) => (),
-
-//                 Ok((
-//                     prioritized_element_id,
-//                     quiche::h3::Event::PriorityUpdate,
-//                 )) => {
-//                     info!(
-//                         "{} PRIORITY_UPDATE triggered for element ID={}",
-//                         conn.trace_id(),
-//                         prioritized_element_id
-//                     );
-//                 },
-
-//                 Ok((goaway_id, quiche::h3::Event::GoAway)) => {
-//                     trace!(
-//                         "{} got GOAWAY with ID {} ",
-//                         conn.trace_id(),
-//                         goaway_id
-//                     );
-//                     self.h3_conn
-//                         .send_goaway(conn, self.largest_processed_request)?;
-//                 },
-
-//                 Err(quiche::h3::Error::Done) => {
-//                     break;
-//                 },
-
-//                 Err(e) => {
-//                     error!("{} HTTP/3 error {:?}", conn.trace_id(), e);
-
-//                     return Err(e);
-//                 },
-//             }
-//         }
-
-//         // Visit all writable response streams to send HTTP content.
-//         for stream_id in writable_response_streams(conn) {
-//             self.handle_writable(conn, partial_responses, stream_id);
-//         }
-
-//         // Process datagram-related events.
-//         while let Ok(len) = conn.dgram_recv(buf) {
-//             let mut b = octets::Octets::with_slice(buf);
-//             if let Ok(flow_id) = b.get_varint() {
-//                 info!(
-//                     "Received DATAGRAM flow_id={} len={} data={:?}",
-//                     flow_id,
-//                     len,
-//                     buf[b.off()..len].to_vec()
-//                 );
-//             }
-//         }
-
-//         if let Some(ds) = self.dgram_sender.as_mut() {
-//             let mut dgrams_done = 0;
-
-//             for _ in ds.dgrams_sent..ds.dgram_count {
-//                 match send_h3_dgram(conn, ds.flow_id, ds.dgram_content.as_bytes())
-//                 {
-//                     Ok(v) => v,
-
-//                     Err(e) => {
-//                         error!("failed to send dgram {:?}", e);
-//                         break;
-//                     },
-//                 }
-
-//                 dgrams_done += 1;
-//             }
-
-//             ds.dgrams_sent += dgrams_done;
-//         }
-
-//         Ok(())
-//     }
-
-//     fn handle_writable(
-//         &mut self, conn: &mut quiche::Connection,
-//         partial_responses: &mut HashMap<u64, PartialResponse>, stream_id: u64,
-//     ) {
-//         debug!(
-//             "{} response stream {} is writable with capacity {:?}",
-//             conn.trace_id(),
-//             stream_id,
-//             conn.stream_capacity(stream_id)
-//         );
-
-//         if !partial_responses.contains_key(&stream_id) {
-//             return;
-//         }
-
-//         let resp = partial_responses.get_mut(&stream_id).unwrap();
-
-//         if let (Some(headers), Some(priority)) = (&resp.headers, &resp.priority) {
-//             match self.h3_conn.send_response_with_priority(
-//                 conn, stream_id, headers, priority, false,
-//             ) {
-//                 Ok(_) => (),
-
-//                 Err(quiche::h3::Error::StreamBlocked) => {
-//                     return;
-//                 },
-
-//                 Err(e) => {
-//                     error!("{} stream send failed {:?}", conn.trace_id(), e);
-//                     return;
-//                 },
-//             }
-//         }
-
-//         resp.headers = None;
-//         resp.priority = None;
-
-//         let body = &resp.body[resp.written..];
-
-//         let written = match self.h3_conn.send_body(conn, stream_id, body, true) {
-//             Ok(v) => v,
-
-//             Err(quiche::h3::Error::Done) => 0,
-
-//             Err(e) => {
-//                 partial_responses.remove(&stream_id);
-
-//                 error!("{} stream send failed {:?}", conn.trace_id(), e);
-//                 return;
-//             },
-//         };
-
-//         resp.written += written;
-
-//         if resp.written == resp.body.len() {
-//             partial_responses.remove(&stream_id);
-//         }
-//     }
-// }
+impl fmt::Debug for SQSH1Conn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SQSH1Conn")
+         .field("streamid", &self.streamid)
+         .field("in_buf", &self.in_buf)
+         .field("in_buf_spos", &self.in_buf_spos)
+         .field("in_dlen", &self.in_dlen)
+         .field("in_buf_epos", &self.in_buf_epos)
+
+         .field("out_buf", &self.out_buf)
+         .field("out_buf_spos", &self.out_buf_spos)
+         .field("out_dlen", &self.out_dlen)
+         .field("out_buf_epos", &self.out_buf_epos)
+         .field("rows", &self.rows)
+         .field("columns", &self.columns)
+         .finish()
+    }
+}
+
+pub fn make_pty_pair(rows: u16, cols: u16) -> PtyPair{
+
+    // Use the native pty implementation for the system
+    let pty_system = native_pty_system();
+
+    // Create a new pty
+    return pty_system.openpty(PtySize {
+        rows: rows,
+        cols: cols,
+        // Not all systems support pixel_width, pixel_height,
+        // but it is good practice to set it to something
+        // that matches the size of the selected font.  That
+        // is more complex than can be shown here in this
+        // brief example though!
+        pixel_width: 0,
+        pixel_height: 0,
+    }).unwrap();
+}   
+
+/*
+    // Represents an HTTP/0.9 formatted request.
+    // pub struct Http09Request {
+    //     url: url::Url,
+    //     cardinal: u64,
+    //     request_line: String,
+    //     stream_id: Option<u64>,
+    //     response_writer: Option<std::io::BufWriter<std::fs::File>>,
+    // }
+
+    // Represents an HTTP/3 formatted request.
+    // struct Http3Request {
+    //     url: url::Url,
+    //     cardinal: u64,
+    //     stream_id: Option<u64>,
+    //     hdrs: Vec<quiche::h3::Header>,
+    //     priority: Option<Priority>,
+    //     response_hdrs: Vec<quiche::h3::Header>,
+    //     response_body: Vec<u8>,
+    //     response_body_max: usize,
+    //     response_writer: Option<std::io::BufWriter<std::fs::File>>,
+    // }
+
+    // type Http3ResponseBuilderResult = std::result::Result<
+    //     (Vec<quiche::h3::Header>, Vec<u8>, Vec<u8>),
+    //     (u64, String),
+    // >;
+
+    // pub struct Http09Conn {
+    //     stream_id: u64,
+    //     reqs_sent: usize,
+    //     reqs_complete: usize,
+    //     reqs: Vec<Http09Request>,
+    //     output_sink: Rc<RefCell<dyn FnMut(String)>>,
+    // }
+
+    // impl Default for Http09Conn {
+    //     fn default() -> Self {
+    //         Http09Conn {
+    //             stream_id: Default::default(),
+    //             reqs_sent: Default::default(),
+    //             reqs_complete: Default::default(),
+    //             reqs: Default::default(),
+    //             output_sink: Rc::new(RefCell::new(stdout_sink)),
+    //         }
+    //     }
+    // }
+
+    // impl Http09Conn {
+    //     pub fn with_urls(
+    //         urls: &[url::Url], reqs_cardinal: u64,
+    //         output_sink: Rc<RefCell<dyn FnMut(String)>>,
+    //     ) -> Box<dyn HttpConn> {
+    //         let mut reqs = Vec::new();
+    //         for url in urls {
+    //             for i in 1..=reqs_cardinal {
+    //                 let request_line = format!("GET {}\r\n", url.path());
+    //                 reqs.push(Http09Request {
+    //                     url: url.clone(),
+    //                     cardinal: i,
+    //                     request_line,
+    //                     stream_id: None,
+    //                     response_writer: None,
+    //                 });
+    //             }
+    //         }
+
+    //         let h_conn = Http09Conn {
+    //             stream_id: 0,
+    //             reqs_sent: 0,
+    //             reqs_complete: 0,
+    //             reqs,
+    //             output_sink,
+    //         };
+
+    //         Box::new(h_conn)
+    //     }
+    // }
+
+    // impl HttpConn for Http09Conn {
+    //     fn send_requests(
+    //         &mut self, conn: &mut quiche::Connection, target_path: &Option<String>,
+    //     ) {
+    //         let mut reqs_done = 0;
+
+    //         for req in self.reqs.iter_mut().skip(self.reqs_sent) {
+    //             match conn.stream_send(
+    //                 self.stream_id,
+    //                 req.request_line.as_bytes(),
+    //                 true,
+    //             ) {
+    //                 Ok(v) => v,
+
+    //                 Err(quiche::Error::StreamLimit) => {
+    //                     debug!("not enough stream credits, retry later...");
+    //                     break;
+    //                 },
+
+    //                 Err(e) => {
+    //                     error!("failed to send request {:?}", e);
+    //                     break;
+    //                 },
+    //             };
+
+    //             debug!("sending HTTP request {:?}", req.request_line);
+
+    //             req.stream_id = Some(self.stream_id);
+    //             req.response_writer =
+    //                 make_resource_writer(&req.url, target_path, req.cardinal);
+
+    //             self.stream_id += 4;
+
+    //             reqs_done += 1;
+    //         }
+
+    //         self.reqs_sent += reqs_done;
+    //     }
+
+    //     fn handle_responses(
+    //         &mut self, conn: &mut quiche::Connection, buf: &mut [u8],
+    //         req_start: &std::time::Instant,
+    //     ) {
+    //         // Process all readable streams.
+    //         for s in conn.readable() {
+    //             while let Ok((read, fin)) = conn.stream_recv(s, buf) {
+    //                 trace!("received {} bytes", read);
+
+    //                 let stream_buf = &buf[..read];
+
+    //                 trace!(
+    //                     "stream {} has {} bytes (fin? {})",
+    //                     s,
+    //                     stream_buf.len(),
+    //                     fin
+    //                 );
+
+    //                 let req = self
+    //                     .reqs
+    //                     .iter_mut()
+    //                     .find(|r| r.stream_id == Some(s))
+    //                     .unwrap();
+
+    //                 match &mut req.response_writer {
+    //                     Some(rw) => {
+    //                         rw.write_all(&buf[..read]).ok();
+    //                     },
+
+    //                     None => {
+    //                         self.output_sink.borrow_mut()(unsafe {
+    //                             String::from_utf8_unchecked(stream_buf.to_vec())
+    //                         });
+    //                     },
+    //                 }
+
+    //                 // The server reported that it has no more data to send on
+    //                 // a client-initiated
+    //                 // bidirectional stream, which means
+    //                 // we got the full response. If all responses are received
+    //                 // then close the connection.
+    //                 if &s % 4 == 0 && fin {
+    //                     self.reqs_complete += 1;
+    //                     let reqs_count = self.reqs.len();
+
+    //                     debug!(
+    //                         "{}/{} responses received",
+    //                         self.reqs_complete, reqs_count
+    //                     );
+
+    //                     if self.reqs_complete == reqs_count {
+    //                         info!(
+    //                             "{}/{} response(s) received in {:?}, closing...",
+    //                             self.reqs_complete,
+    //                             reqs_count,
+    //                             req_start.elapsed()
+    //                         );
+
+    //                         match conn.close(true, 0x00, b"kthxbye") {
+    //                             // Already closed.
+    //                             Ok(_) | Err(quiche::Error::Done) => (),
+
+    //                             Err(e) => panic!("error closing conn: {:?}", e),
+    //                         }
+
+    //                         break;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     fn report_incomplete(&self, start: &std::time::Instant) -> bool {
+    //         if self.reqs_complete != self.reqs.len() {
+    //             error!(
+    //                 "connection timed out after {:?} and only completed {}/{} requests",
+    //                 start.elapsed(),
+    //                 self.reqs_complete,
+    //                 self.reqs.len()
+    //             );
+
+    //             return true;
+    //         }
+
+    //         false
+    //     }
+
+    //     fn handle_requests(
+    //         &mut self, conn: &mut quiche::Connection,
+    //         partial_requests: &mut HashMap<u64, PartialRequest>,
+    //         partial_responses: &mut HashMap<u64, PartialResponse>, root: &str,
+    //         index: &str, buf: &mut [u8],
+    //     ) -> quiche::h3::Result<()> {
+    //         // Process all readable streams.
+    //         for s in conn.readable() {
+    //             while let Ok((read, fin)) = conn.stream_recv(s, buf) {
+    //                 trace!("{} received {} bytes", conn.trace_id(), read);
+
+    //                 let stream_buf = &buf[..read];
+
+    //                 trace!(
+    //                     "{} stream {} has {} bytes (fin? {})",
+    //                     conn.trace_id(),
+    //                     s,
+    //                     stream_buf.len(),
+    //                     fin
+    //                 );
+
+    //                 let stream_buf =
+    //                     if let Some(partial) = partial_requests.get_mut(&s) {
+    //                         partial.req.extend_from_slice(stream_buf);
+
+    //                         if !partial.req.ends_with(b"\r\n") {
+    //                             return Ok(());
+    //                         }
+
+    //                         &partial.req
+    //                     } else {
+    //                         if !stream_buf.ends_with(b"\r\n") {
+    //                             let request = PartialRequest {
+    //                                 req: stream_buf.to_vec(),
+    //                             };
+
+    //                             partial_requests.insert(s, request);
+    //                             return Ok(());
+    //                         }
+
+    //                         stream_buf
+    //                     };
+
+    //                 if stream_buf.starts_with(b"GET ") {
+    //                     let uri = &stream_buf[4..stream_buf.len() - 2];
+    //                     let uri = String::from_utf8(uri.to_vec()).unwrap();
+    //                     let uri = String::from(uri.lines().next().unwrap());
+    //                     let uri = path::Path::new(&uri);
+    //                     let mut path = path::PathBuf::from(root);
+
+    //                     partial_requests.remove(&s);
+
+    //                     for c in uri.components() {
+    //                         if let path::Component::Normal(v) = c {
+    //                             path.push(v)
+    //                         }
+    //                     }
+
+    //                     path = autoindex(path, index);
+
+    //                     info!(
+    //                         "{} got GET request for {:?} on stream {}",
+    //                         conn.trace_id(),
+    //                         path,
+    //                         s
+    //                     );
+
+    //                     let body = std::fs::read(path.as_path())
+    //                         .unwrap_or_else(|_| b"Not Found!\r\n".to_vec());
+
+    //                     info!(
+    //                         "{} sending response of size {} on stream {}",
+    //                         conn.trace_id(),
+    //                         body.len(),
+    //                         s
+    //                     );
+
+    //                     let written = match conn.stream_send(s, &body, true) {
+    //                         Ok(v) => v,
+
+    //                         Err(quiche::Error::Done) => 0,
+
+    //                         Err(e) => {
+    //                             error!(
+    //                                 "{} stream send failed {:?}",
+    //                                 conn.trace_id(),
+    //                                 e
+    //                             );
+    //                             return Err(From::from(e));
+    //                         },
+    //                     };
+
+    //                     if written < body.len() {
+    //                         let response = PartialResponse {
+    //                             headers: None,
+    //                             priority: None,
+    //                             body,
+    //                             written,
+    //                         };
+
+    //                         partial_responses.insert(s, response);
+    //                     }
+    //                 }
+    //             }
+    //         }
+
+    //         Ok(())
+    //     }
+
+    //     fn handle_writable(
+    //         &mut self, conn: &mut quiche::Connection,
+    //         partial_responses: &mut HashMap<u64, PartialResponse>, stream_id: u64,
+    //     ) {
+    //         debug!(
+    //             "{} response stream {} is writable with capacity {:?}",
+    //             conn.trace_id(),
+    //             stream_id,
+    //             conn.stream_capacity(stream_id)
+    //         );
+
+    //         if !partial_responses.contains_key(&stream_id) {
+    //             return;
+    //         }
+
+    //         let resp = partial_responses.get_mut(&stream_id).unwrap();
+    //         let body = &resp.body[resp.written..];
+
+    //         let written = match conn.stream_send(stream_id, body, true) {
+    //             Ok(v) => v,
+
+    //             Err(quiche::Error::Done) => 0,
+
+    //             Err(e) => {
+    //                 partial_responses.remove(&stream_id);
+
+    //                 error!("{} stream send failed {:?}", conn.trace_id(), e);
+    //                 return;
+    //             },
+    //         };
+
+    //         resp.written += written;
+
+    //         if resp.written == resp.body.len() {
+    //             partial_responses.remove(&stream_id);
+    //         }
+    //     }
+    // }
+
+    // pub struct Http3DgramSender {
+    //     dgram_count: u64,
+    //     pub dgram_content: String,
+    //     pub flow_id: u64,
+    //     pub dgrams_sent: u64,
+    // }
+
+    // impl Http3DgramSender {
+    //     pub fn new(dgram_count: u64, dgram_content: String, flow_id: u64) -> Self {
+    //         Self {
+    //             dgram_count,
+    //             dgram_content,
+    //             flow_id,
+    //             dgrams_sent: 0,
+    //         }
+    //     }
+    // }
+
+    // fn make_h3_config(
+    //     max_field_section_size: Option<u64>, qpack_max_table_capacity: Option<u64>,
+    //     qpack_blocked_streams: Option<u64>,
+    // ) -> quiche::h3::Config {
+    //     let mut config = quiche::h3::Config::new().unwrap();
+
+    //     if let Some(v) = max_field_section_size {
+    //         config.set_max_field_section_size(v);
+    //     }
+
+    //     if let Some(v) = qpack_max_table_capacity {
+    //         // quiche doesn't support dynamic QPACK, so clamp to 0 for now.
+    //         config.set_qpack_max_table_capacity(v.clamp(0, 0));
+    //     }
+
+    //     if let Some(v) = qpack_blocked_streams {
+    //         // quiche doesn't support dynamic QPACK, so clamp to 0 for now.
+    //         config.set_qpack_blocked_streams(v.clamp(0, 0));
+    //     }
+
+    //     config
+    // }
+
+    // pub struct Http3Conn {
+    //     h3_conn: quiche::h3::Connection,
+    //     reqs_hdrs_sent: usize,
+    //     reqs_complete: usize,
+    //     largest_processed_request: u64,
+    //     reqs: Vec<Http3Request>,
+    //     body: Option<Vec<u8>>,
+    //     sent_body_bytes: HashMap<u64, usize>,
+    //     dump_json: bool,
+    //     dgram_sender: Option<Http3DgramSender>,
+    //     output_sink: Rc<RefCell<dyn FnMut(String)>>,
+    // }
+
+    // impl Http3Conn {
+    //     #[allow(clippy::too_many_arguments)]
+    //     pub fn with_urls(
+    //         conn: &mut quiche::Connection, urls: &[url::Url], reqs_cardinal: u64,
+    //         req_headers: &[String], body: &Option<Vec<u8>>, method: &str,
+    //         send_priority_update: bool, max_field_section_size: Option<u64>,
+    //         qpack_max_table_capacity: Option<u64>,
+    //         qpack_blocked_streams: Option<u64>, dump_json: Option<usize>,
+    //         dgram_sender: Option<Http3DgramSender>,
+    //         output_sink: Rc<RefCell<dyn FnMut(String)>>,
+    //     ) -> Box<dyn HttpConn> {
+    //         let mut reqs = Vec::new();
+    //         for url in urls {
+    //             for i in 1..=reqs_cardinal {
+    //                 let authority = match url.port() {
+    //                     Some(port) => format!("{}:{}", url.host_str().unwrap(), port),
+
+    //                     None => url.host_str().unwrap().to_string(),
+    //                 };
+
+    //                 let mut hdrs = vec![
+    //                     quiche::h3::Header::new(b":method", method.as_bytes()),
+    //                     quiche::h3::Header::new(b":scheme", url.scheme().as_bytes()),
+    //                     quiche::h3::Header::new(b":authority", authority.as_bytes()),
+    //                     quiche::h3::Header::new(
+    //                         b":path",
+    //                         url[url::Position::BeforePath..].as_bytes(),
+    //                     ),
+    //                     quiche::h3::Header::new(b"user-agent", b"quiche"),
+    //                 ];
+
+    //                 let priority = if send_priority_update {
+    //                     priority_from_query_string(url)
+    //                 } else {
+    //                     None
+    //                 };
+
+    //                 // Add custom headers to the request.
+    //                 for header in req_headers {
+    //                     let header_split: Vec<&str> =
+    //                         header.splitn(2, ": ").collect();
+
+    //                     if header_split.len() != 2 {
+    //                         panic!("malformed header provided - \"{}\"", header);
+    //                     }
+
+    //                     hdrs.push(quiche::h3::Header::new(
+    //                         header_split[0].as_bytes(),
+    //                         header_split[1].as_bytes(),
+    //                     ));
+    //                 }
+
+    //                 if body.is_some() {
+    //                     hdrs.push(quiche::h3::Header::new(
+    //                         b"content-length",
+    //                         body.as_ref().unwrap().len().to_string().as_bytes(),
+    //                     ));
+    //                 }
+
+    //                 reqs.push(Http3Request {
+    //                     url: url.clone(),
+    //                     cardinal: i,
+    //                     hdrs,
+    //                     priority,
+    //                     response_hdrs: Vec::new(),
+    //                     response_body: Vec::new(),
+    //                     response_body_max: dump_json.unwrap_or_default(),
+    //                     stream_id: None,
+    //                     response_writer: None,
+    //                 });
+    //             }
+    //         }
+
+    //         let h_conn = Http3Conn {
+    //             h3_conn: quiche::h3::Connection::with_transport(
+    //                 conn,
+    //                 &make_h3_config(
+    //                     max_field_section_size,
+    //                     qpack_max_table_capacity,
+    //                     qpack_blocked_streams,
+    //                 ),
+    //             ).expect("Unable to create HTTP/3 connection, check the server's uni stream limit and window size"),
+    //             reqs_hdrs_sent: 0,
+    //             reqs_complete: 0,
+    //             largest_processed_request: 0,
+    //             reqs,
+    //             body: body.as_ref().map(|b| b.to_vec()),
+    //             sent_body_bytes: HashMap::new(),
+    //             dump_json: dump_json.is_some(),
+    //             dgram_sender,
+    //             output_sink,
+    //         };
+
+    //         Box::new(h_conn)
+    //     }
+
+    //     pub fn with_conn(
+    //         conn: &mut quiche::Connection, max_field_section_size: Option<u64>,
+    //         qpack_max_table_capacity: Option<u64>,
+    //         qpack_blocked_streams: Option<u64>,
+    //         dgram_sender: Option<Http3DgramSender>,
+    //         output_sink: Rc<RefCell<dyn FnMut(String)>>,
+    //     ) -> std::result::Result<Box<dyn HttpConn>, String> {
+    //         let h3_conn = quiche::h3::Connection::with_transport(
+    //             conn,
+    //             &make_h3_config(
+    //                 max_field_section_size,
+    //                 qpack_max_table_capacity,
+    //                 qpack_blocked_streams,
+    //             ),
+    //         ).map_err(|_| "Unable to create HTTP/3 connection, check the client's uni stream limit and window size")?;
+
+    //         let h_conn = Http3Conn {
+    //             h3_conn,
+    //             reqs_hdrs_sent: 0,
+    //             reqs_complete: 0,
+    //             largest_processed_request: 0,
+    //             reqs: Vec::new(),
+    //             body: None,
+    //             sent_body_bytes: HashMap::new(),
+    //             dump_json: false,
+    //             dgram_sender,
+    //             output_sink,
+    //         };
+
+    //         Ok(Box::new(h_conn))
+    //     }
+
+    //     /// Builds an HTTP/3 response given a request.
+    //     fn build_h3_response(
+    //         root: &str, index: &str, request: &[quiche::h3::Header],
+    //     ) -> Http3ResponseBuilderResult {
+    //         let mut file_path = path::PathBuf::from(root);
+    //         let mut scheme = None;
+    //         let mut authority = None;
+    //         let mut host = None;
+    //         let mut path = None;
+    //         let mut method = None;
+    //         let mut priority = vec![];
+
+    //         // Parse some of the request headers.
+    //         for hdr in request {
+    //             match hdr.name() {
+    //                 b":scheme" => {
+    //                     if scheme.is_some() {
+    //                         return Err((
+    //                             H3_MESSAGE_ERROR,
+    //                             ":scheme cannot be duplicated".to_string(),
+    //                         ));
+    //                     }
+
+    //                     scheme = Some(std::str::from_utf8(hdr.value()).unwrap());
+    //                 },
+
+    //                 b":authority" => {
+    //                     if authority.is_some() {
+    //                         return Err((
+    //                             H3_MESSAGE_ERROR,
+    //                             ":authority cannot be duplicated".to_string(),
+    //                         ));
+    //                     }
+
+    //                     authority = Some(std::str::from_utf8(hdr.value()).unwrap());
+    //                 },
+
+    //                 b":path" => {
+    //                     if path.is_some() {
+    //                         return Err((
+    //                             H3_MESSAGE_ERROR,
+    //                             ":path cannot be duplicated".to_string(),
+    //                         ));
+    //                     }
+
+    //                     path = Some(std::str::from_utf8(hdr.value()).unwrap())
+    //                 },
+
+    //                 b":method" => {
+    //                     if method.is_some() {
+    //                         return Err((
+    //                             H3_MESSAGE_ERROR,
+    //                             ":method cannot be duplicated".to_string(),
+    //                         ));
+    //                     }
+
+    //                     method = Some(std::str::from_utf8(hdr.value()).unwrap())
+    //                 },
+
+    //                 b":protocol" => {
+    //                     return Err((
+    //                         H3_MESSAGE_ERROR,
+    //                         ":protocol not supported".to_string(),
+    //                     ));
+    //                 },
+
+    //                 b"priority" => priority = hdr.value().to_vec(),
+
+    //                 b"host" => host = Some(std::str::from_utf8(hdr.value()).unwrap()),
+
+    //                 _ => (),
+    //             }
+    //         }
+
+    //         let decided_method = match method {
+    //             Some(method) => {
+    //                 match method {
+    //                     "" =>
+    //                         return Err((
+    //                             H3_MESSAGE_ERROR,
+    //                             ":method value cannot be empty".to_string(),
+    //                         )),
+
+    //                     "CONNECT" => {
+    //                         // not allowed
+    //                         let headers = vec![
+    //                             quiche::h3::Header::new(
+    //                                 b":status",
+    //                                 "405".to_string().as_bytes(),
+    //                             ),
+    //                             quiche::h3::Header::new(b"server", b"quiche"),
+    //                         ];
+
+    //                         return Ok((headers, b"".to_vec(), Default::default()));
+    //                     },
+
+    //                     _ => method,
+    //                 }
+    //             },
+
+    //             None =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":method cannot be missing".to_string(),
+    //                 )),
+    //         };
+
+    //         let decided_scheme = match scheme {
+    //             Some(scheme) => {
+    //                 if scheme != "http" && scheme != "https" {
+    //                     let headers = vec![
+    //                         quiche::h3::Header::new(
+    //                             b":status",
+    //                             "400".to_string().as_bytes(),
+    //                         ),
+    //                         quiche::h3::Header::new(b"server", b"quiche"),
+    //                     ];
+
+    //                     return Ok((
+    //                         headers,
+    //                         b"Invalid scheme".to_vec(),
+    //                         Default::default(),
+    //                     ));
+    //                 }
+
+    //                 scheme
+    //             },
+
+    //             None =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":scheme cannot be missing".to_string(),
+    //                 )),
+    //         };
+
+    //         let decided_host = match (authority, host) {
+    //             (None, Some("")) =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     "host value cannot be empty".to_string(),
+    //                 )),
+
+    //             (Some(""), None) =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":authority value cannot be empty".to_string(),
+    //                 )),
+
+    //             (Some(""), Some("")) =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":authority and host value cannot be empty".to_string(),
+    //                 )),
+
+    //             (None, None) =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":authority and host missing".to_string(),
+    //                 )),
+
+    //             // Any other combo, prefer :authority
+    //             (..) => authority.unwrap(),
+    //         };
+
+    //         let decided_path = match path {
+    //             Some("") =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":path value cannot be empty".to_string(),
+    //                 )),
+
+    //             None =>
+    //                 return Err((
+    //                     H3_MESSAGE_ERROR,
+    //                     ":path cannot be missing".to_string(),
+    //                 )),
+
+    //             Some(path) => path,
+    //         };
+
+    //         let url = format!("{decided_scheme}://{decided_host}{decided_path}");
+    //         let url = url::Url::parse(&url).unwrap();
+
+    //         let pathbuf = path::PathBuf::from(url.path());
+    //         let pathbuf = autoindex(pathbuf, index);
+
+    //         // Priority query string takes precedence over the header.
+    //         // So replace the header with one built here.
+    //         let query_priority = priority_field_value_from_query_string(&url);
+
+    //         if let Some(p) = query_priority {
+    //             priority = p.as_bytes().to_vec();
+    //         }
+
+    //         let (status, body) = match decided_method {
+    //             "GET" => {
+    //                 for c in pathbuf.components() {
+    //                     if let path::Component::Normal(v) = c {
+    //                         file_path.push(v)
+    //                     }
+    //                 }
+
+    //                 match std::fs::read(file_path.as_path()) {
+    //                     Ok(data) => (200, data),
+
+    //                     Err(_) => (404, b"Not Found!".to_vec()),
+    //                 }
+    //             },
+
+    //             _ => (405, Vec::new()),
+    //         };
+
+    //         let headers = vec![
+    //             quiche::h3::Header::new(b":status", status.to_string().as_bytes()),
+    //             quiche::h3::Header::new(b"server", b"quiche"),
+    //             quiche::h3::Header::new(
+    //                 b"content-length",
+    //                 body.len().to_string().as_bytes(),
+    //             ),
+    //         ];
+
+    //         Ok((headers, body, priority))
+    //     }
+    // }
+
+    // impl HttpConn for Http3Conn {
+    //     fn send_requests(
+    //         &mut self, conn: &mut quiche::Connection, target_path: &Option<String>,
+    //     ) {
+    //         let mut reqs_done = 0;
+
+    //         // First send headers.
+    //         for req in self.reqs.iter_mut().skip(self.reqs_hdrs_sent) {
+    //             let s = match self.h3_conn.send_request(
+    //                 conn,
+    //                 &req.hdrs,
+    //                 self.body.is_none(),
+    //             ) {
+    //                 Ok(v) => v,
+
+    //                 Err(quiche::h3::Error::TransportError(
+    //                     quiche::Error::StreamLimit,
+    //                 )) => {
+    //                     debug!("not enough stream credits, retry later...");
+    //                     break;
+    //                 },
+
+    //                 Err(quiche::h3::Error::StreamBlocked) => {
+    //                     debug!("stream is blocked, retry later...");
+    //                     break;
+    //                 },
+
+    //                 Err(e) => {
+    //                     error!("failed to send request {:?}", e);
+    //                     break;
+    //                 },
+    //             };
+
+    //             debug!("Sent HTTP request {:?}", &req.hdrs);
+
+    //             if let Some(priority) = &req.priority {
+    //                 // If sending the priority fails, don't try again.
+    //                 self.h3_conn
+    //                     .send_priority_update_for_request(conn, s, priority)
+    //                     .ok();
+    //             }
+
+    //             req.stream_id = Some(s);
+    //             req.response_writer =
+    //                 make_resource_writer(&req.url, target_path, req.cardinal);
+    //             self.sent_body_bytes.insert(s, 0);
+
+    //             reqs_done += 1;
+    //         }
+    //         self.reqs_hdrs_sent += reqs_done;
+
+    //         // Then send any remaining body.
+    //         if let Some(body) = &self.body {
+    //             for (stream_id, sent_bytes) in self.sent_body_bytes.iter_mut() {
+    //                 if *sent_bytes == body.len() {
+    //                     continue;
+    //                 }
+
+    //                 // Always try to send all remaining bytes, so always set fin to
+    //                 // true.
+    //                 let sent = match self.h3_conn.send_body(
+    //                     conn,
+    //                     *stream_id,
+    //                     &body[*sent_bytes..],
+    //                     true,
+    //                 ) {
+    //                     Ok(v) => v,
+
+    //                     Err(quiche::h3::Error::Done) => 0,
+
+    //                     Err(e) => {
+    //                         error!("failed to send request body {:?}", e);
+    //                         continue;
+    //                     },
+    //                 };
+
+    //                 *sent_bytes += sent;
+    //             }
+    //         }
+
+    //         // And finally any DATAGRAMS.
+    //         if let Some(ds) = self.dgram_sender.as_mut() {
+    //             let mut dgrams_done = 0;
+
+    //             for _ in ds.dgrams_sent..ds.dgram_count {
+    //                 match send_h3_dgram(conn, ds.flow_id, ds.dgram_content.as_bytes())
+    //                 {
+    //                     Ok(v) => v,
+
+    //                     Err(e) => {
+    //                         error!("failed to send dgram {:?}", e);
+    //                         break;
+    //                     },
+    //                 }
+
+    //                 dgrams_done += 1;
+    //             }
+
+    //             ds.dgrams_sent += dgrams_done;
+    //         }
+    //     }
+
+    //     fn handle_responses(
+    //         &mut self, conn: &mut quiche::Connection, buf: &mut [u8],
+    //         req_start: &std::time::Instant,
+    //     ) {
+    //         loop {
+    //             match self.h3_conn.poll(conn) {
+    //                 Ok((stream_id, quiche::h3::Event::Headers { list, .. })) => {
+    //                     debug!(
+    //                         "got response headers {:?} on stream id {}",
+    //                         hdrs_to_strings(&list),
+    //                         stream_id
+    //                     );
+
+    //                     let req = self
+    //                         .reqs
+    //                         .iter_mut()
+    //                         .find(|r| r.stream_id == Some(stream_id))
+    //                         .unwrap();
+
+    //                     req.response_hdrs = list;
+    //                 },
+
+    //                 Ok((stream_id, quiche::h3::Event::Data)) => {
+    //                     while let Ok(read) =
+    //                         self.h3_conn.recv_body(conn, stream_id, buf)
+    //                     {
+    //                         debug!(
+    //                             "got {} bytes of response data on stream {}",
+    //                             read, stream_id
+    //                         );
+
+    //                         let req = self
+    //                             .reqs
+    //                             .iter_mut()
+    //                             .find(|r| r.stream_id == Some(stream_id))
+    //                             .unwrap();
+
+    //                         let len = std::cmp::min(
+    //                             read,
+    //                             req.response_body_max - req.response_body.len(),
+    //                         );
+    //                         req.response_body.extend_from_slice(&buf[..len]);
+
+    //                         match &mut req.response_writer {
+    //                             Some(rw) => {
+    //                                 rw.write_all(&buf[..read]).ok();
+    //                             },
+
+    //                             None =>
+    //                                 if !self.dump_json {
+    //                                     self.output_sink.borrow_mut()(unsafe {
+    //                                         String::from_utf8_unchecked(
+    //                                             buf[..read].to_vec(),
+    //                                         )
+    //                                     });
+    //                                 },
+    //                         }
+    //                     }
+    //                 },
+
+    //                 Ok((_stream_id, quiche::h3::Event::Finished)) => {
+    //                     self.reqs_complete += 1;
+    //                     let reqs_count = self.reqs.len();
+
+    //                     debug!(
+    //                         "{}/{} responses received",
+    //                         self.reqs_complete, reqs_count
+    //                     );
+
+    //                     if self.reqs_complete == reqs_count {
+    //                         info!(
+    //                             "{}/{} response(s) received in {:?}, closing...",
+    //                             self.reqs_complete,
+    //                             reqs_count,
+    //                             req_start.elapsed()
+    //                         );
+
+    //                         if self.dump_json {
+    //                             dump_json(
+    //                                 &self.reqs,
+    //                                 &mut *self.output_sink.borrow_mut(),
+    //                             );
+    //                         }
+
+    //                         match conn.close(true, 0x100, b"kthxbye") {
+    //                             // Already closed.
+    //                             Ok(_) | Err(quiche::Error::Done) => (),
+
+    //                             Err(e) => panic!("error closing conn: {:?}", e),
+    //                         }
+
+    //                         break;
+    //                     }
+    //                 },
+
+    //                 Ok((_stream_id, quiche::h3::Event::Reset(e))) => {
+    //                     error!("request was reset by peer with {}, closing...", e);
+
+    //                     match conn.close(true, 0x100, b"kthxbye") {
+    //                         // Already closed.
+    //                         Ok(_) | Err(quiche::Error::Done) => (),
+
+    //                         Err(e) => panic!("error closing conn: {:?}", e),
+    //                     }
+
+    //                     break;
+    //                 },
+
+    //                 Ok((
+    //                     prioritized_element_id,
+    //                     quiche::h3::Event::PriorityUpdate,
+    //                 )) => {
+    //                     info!(
+    //                         "{} PRIORITY_UPDATE triggered for element ID={}",
+    //                         conn.trace_id(),
+    //                         prioritized_element_id
+    //                     );
+    //                 },
+
+    //                 Ok((goaway_id, quiche::h3::Event::GoAway)) => {
+    //                     info!(
+    //                         "{} got GOAWAY with ID {} ",
+    //                         conn.trace_id(),
+    //                         goaway_id
+    //                     );
+    //                 },
+
+    //                 Err(quiche::h3::Error::Done) => {
+    //                     break;
+    //                 },
+
+    //                 Err(e) => {
+    //                     error!("HTTP/3 processing failed: {:?}", e);
+
+    //                     break;
+    //                 },
+    //             }
+    //         }
+
+    //         // Process datagram-related events.
+    //         while let Ok(len) = conn.dgram_recv(buf) {
+    //             let mut b = octets::Octets::with_slice(buf);
+    //             if let Ok(flow_id) = b.get_varint() {
+    //                 info!(
+    //                     "Received DATAGRAM flow_id={} len={} data={:?}",
+    //                     flow_id,
+    //                     len,
+    //                     buf[b.off()..len].to_vec()
+    //                 );
+    //             }
+    //         }
+    //     }
+
+    //     fn report_incomplete(&self, start: &std::time::Instant) -> bool {
+    //         if self.reqs_complete != self.reqs.len() {
+    //             error!(
+    //                 "connection timed out after {:?} and only completed {}/{} requests",
+    //                 start.elapsed(),
+    //                 self.reqs_complete,
+    //                 self.reqs.len()
+    //             );
+
+    //             if self.dump_json {
+    //                 dump_json(&self.reqs, &mut *self.output_sink.borrow_mut());
+    //             }
+
+    //             return true;
+    //         }
+
+    //         false
+    //     }
+
+    //     fn handle_requests(
+    //         &mut self, conn: &mut quiche::Connection,
+    //         _partial_requests: &mut HashMap<u64, PartialRequest>,
+    //         partial_responses: &mut HashMap<u64, PartialResponse>, root: &str,
+    //         index: &str, buf: &mut [u8],
+    //     ) -> quiche::h3::Result<()> {
+    //         // Process HTTP stream-related events.
+    //         //
+    //         // This loops over any and all received HTTP requests and sends just the
+    //         // HTTP response headers.
+    //         loop {
+    //             match self.h3_conn.poll(conn) {
+    //                 Ok((stream_id, quiche::h3::Event::Headers { list, .. })) => {
+    //                     info!(
+    //                         "{} got request {:?} on stream id {}",
+    //                         conn.trace_id(),
+    //                         hdrs_to_strings(&list),
+    //                         stream_id
+    //                     );
+
+    //                     self.largest_processed_request =
+    //                         std::cmp::max(self.largest_processed_request, stream_id);
+
+    //                     // We decide the response based on headers alone, so
+    //                     // stop reading the request stream so that any body
+    //                     // is ignored and pointless Data events are not
+    //                     // generated.
+    //                     conn.stream_shutdown(stream_id, quiche::Shutdown::Read, 0)
+    //                         .unwrap();
+
+    //                     let (mut headers, body, mut priority) =
+    //                         match Http3Conn::build_h3_response(root, index, &list) {
+    //                             Ok(v) => v,
+
+    //                             Err((error_code, _)) => {
+    //                                 conn.stream_shutdown(
+    //                                     stream_id,
+    //                                     quiche::Shutdown::Write,
+    //                                     error_code,
+    //                                 )
+    //                                 .unwrap();
+    //                                 continue;
+    //                             },
+    //                         };
+
+    //                     match self.h3_conn.take_last_priority_update(stream_id) {
+    //                         Ok(v) => {
+    //                             priority = v;
+    //                         },
+
+    //                         Err(quiche::h3::Error::Done) => (),
+
+    //                         Err(e) => error!(
+    //                             "{} error taking PRIORITY_UPDATE {}",
+    //                             conn.trace_id(),
+    //                             e
+    //                         ),
+    //                     }
+
+    //                     if !priority.is_empty() {
+    //                         headers.push(quiche::h3::Header::new(
+    //                             b"priority",
+    //                             priority.as_slice(),
+    //                         ));
+    //                     }
+
+    //                     #[cfg(feature = "sfv")]
+    //                     let priority =
+    //                         quiche::h3::Priority::try_from(priority.as_slice())
+    //                             .unwrap_or_default();
+
+    //                     #[cfg(not(feature = "sfv"))]
+    //                     let priority = quiche::h3::Priority::default();
+
+    //                     info!(
+    //                         "{} prioritizing response on stream {} as {:?}",
+    //                         conn.trace_id(),
+    //                         stream_id,
+    //                         priority
+    //                     );
+
+    //                     match self.h3_conn.send_response_with_priority(
+    //                         conn, stream_id, &headers, &priority, false,
+    //                     ) {
+    //                         Ok(v) => v,
+
+    //                         Err(quiche::h3::Error::StreamBlocked) => {
+    //                             let response = PartialResponse {
+    //                                 headers: Some(headers),
+    //                                 priority: Some(priority),
+    //                                 body,
+    //                                 written: 0,
+    //                             };
+
+    //                             partial_responses.insert(stream_id, response);
+    //                             continue;
+    //                         },
+
+    //                         Err(e) => {
+    //                             error!(
+    //                                 "{} stream send failed {:?}",
+    //                                 conn.trace_id(),
+    //                                 e
+    //                             );
+
+    //                             break;
+    //                         },
+    //                     }
+
+    //                     let response = PartialResponse {
+    //                         headers: None,
+    //                         priority: None,
+    //                         body,
+    //                         written: 0,
+    //                     };
+
+    //                     partial_responses.insert(stream_id, response);
+    //                 },
+
+    //                 Ok((stream_id, quiche::h3::Event::Data)) => {
+    //                     info!(
+    //                         "{} got data on stream id {}",
+    //                         conn.trace_id(),
+    //                         stream_id
+    //                     );
+    //                 },
+
+    //                 Ok((_stream_id, quiche::h3::Event::Finished)) => (),
+
+    //                 Ok((_stream_id, quiche::h3::Event::Reset { .. })) => (),
+
+    //                 Ok((
+    //                     prioritized_element_id,
+    //                     quiche::h3::Event::PriorityUpdate,
+    //                 )) => {
+    //                     info!(
+    //                         "{} PRIORITY_UPDATE triggered for element ID={}",
+    //                         conn.trace_id(),
+    //                         prioritized_element_id
+    //                     );
+    //                 },
+
+    //                 Ok((goaway_id, quiche::h3::Event::GoAway)) => {
+    //                     trace!(
+    //                         "{} got GOAWAY with ID {} ",
+    //                         conn.trace_id(),
+    //                         goaway_id
+    //                     );
+    //                     self.h3_conn
+    //                         .send_goaway(conn, self.largest_processed_request)?;
+    //                 },
+
+    //                 Err(quiche::h3::Error::Done) => {
+    //                     break;
+    //                 },
+
+    //                 Err(e) => {
+    //                     error!("{} HTTP/3 error {:?}", conn.trace_id(), e);
+
+    //                     return Err(e);
+    //                 },
+    //             }
+    //         }
+
+    //         // Visit all writable response streams to send HTTP content.
+    //         for stream_id in writable_response_streams(conn) {
+    //             self.handle_writable(conn, partial_responses, stream_id);
+    //         }
+
+    //         // Process datagram-related events.
+    //         while let Ok(len) = conn.dgram_recv(buf) {
+    //             let mut b = octets::Octets::with_slice(buf);
+    //             if let Ok(flow_id) = b.get_varint() {
+    //                 info!(
+    //                     "Received DATAGRAM flow_id={} len={} data={:?}",
+    //                     flow_id,
+    //                     len,
+    //                     buf[b.off()..len].to_vec()
+    //                 );
+    //             }
+    //         }
+
+    //         if let Some(ds) = self.dgram_sender.as_mut() {
+    //             let mut dgrams_done = 0;
+
+    //             for _ in ds.dgrams_sent..ds.dgram_count {
+    //                 match send_h3_dgram(conn, ds.flow_id, ds.dgram_content.as_bytes())
+    //                 {
+    //                     Ok(v) => v,
+
+    //                     Err(e) => {
+    //                         error!("failed to send dgram {:?}", e);
+    //                         break;
+    //                     },
+    //                 }
+
+    //                 dgrams_done += 1;
+    //             }
+
+    //             ds.dgrams_sent += dgrams_done;
+    //         }
+
+    //         Ok(())
+    //     }
+
+    //     fn handle_writable(
+    //         &mut self, conn: &mut quiche::Connection,
+    //         partial_responses: &mut HashMap<u64, PartialResponse>, stream_id: u64,
+    //     ) {
+    //         debug!(
+    //             "{} response stream {} is writable with capacity {:?}",
+    //             conn.trace_id(),
+    //             stream_id,
+    //             conn.stream_capacity(stream_id)
+    //         );
+
+    //         if !partial_responses.contains_key(&stream_id) {
+    //             return;
+    //         }
+
+    //         let resp = partial_responses.get_mut(&stream_id).unwrap();
+
+    //         if let (Some(headers), Some(priority)) = (&resp.headers, &resp.priority) {
+    //             match self.h3_conn.send_response_with_priority(
+    //                 conn, stream_id, headers, priority, false,
+    //             ) {
+    //                 Ok(_) => (),
+
+    //                 Err(quiche::h3::Error::StreamBlocked) => {
+    //                     return;
+    //                 },
+
+    //                 Err(e) => {
+    //                     error!("{} stream send failed {:?}", conn.trace_id(), e);
+    //                     return;
+    //                 },
+    //             }
+    //         }
+
+    //         resp.headers = None;
+    //         resp.priority = None;
+
+    //         let body = &resp.body[resp.written..];
+
+    //         let written = match self.h3_conn.send_body(conn, stream_id, body, true) {
+    //             Ok(v) => v,
+
+    //             Err(quiche::h3::Error::Done) => 0,
+
+    //             Err(e) => {
+    //                 partial_responses.remove(&stream_id);
+
+    //                 error!("{} stream send failed {:?}", conn.trace_id(), e);
+    //                 return;
+    //             },
+    //         };
+
+    //         resp.written += written;
+
+    //         if resp.written == resp.body.len() {
+    //             partial_responses.remove(&stream_id);
+    //         }
+    //     }
+    // }
+*/

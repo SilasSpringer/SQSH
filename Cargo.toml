@@ -16,3 +16,4 @@ octets = { version = "0.3"}
 ring = "0.17"
 libc = "0.2"
 nix = { version = "0.27", features = ["net", "socket", "uio"] }
+portable-pty = { version = "0.8.1" }

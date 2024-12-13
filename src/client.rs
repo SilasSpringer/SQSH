@@ -203,6 +203,7 @@ pub fn connect(
     let original = termios;
     unsafe { libc::cfmakeraw(&mut termios) };
     termios.c_oflag = original.c_oflag;
+    // unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &termios) };
 
 // APPROTO REFERENCE
     // let mut app_proto_selected = false;
@@ -410,9 +411,9 @@ pub fn connect(
             break;
         }
 
-        if(pkt_count <= 1){
-            eprintln!("Time to first packet read: {}ms", now.elapsed().as_millis());
-        }
+        // if(pkt_count <= 1){
+        //     eprintln!("Time to first packet read: {}ms", now.elapsed().as_millis());
+        // }
 
 
 // BEGIN APPPROTO SECTION
@@ -429,7 +430,9 @@ pub fn connect(
                 // &mut conn, 
                 &mut top_stream_id, 
                 SQSHInitMode::SQSHInitNone, 
-                &None 
+                &None,
+                80,
+                10,
             ));
             unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &termios) };
             let res = stdin.read(&mut stdinbuf).expect("Error reading from stdin.");
@@ -440,6 +443,24 @@ pub fn connect(
                 //TODO: change zero...
                 // let _ = conn.stream_send(4, &stdinbuf[..res], false).expect("send failed.");
 
+                let res2 = match conn.stream_recv(4, &mut outbuf) {
+                    Ok((v,_)) => v,
+                    Err(e) => {
+                        // error!("{} recv failed: {:?}", conn.trace_id(), e);
+                        0
+                    },
+                };
+                // eprintln!("recieved {} ({})", String::from_utf8_lossy(&outbuf[..res2]), res2);
+
+                // looping for echoes doesnt work since send doesnt send until end of loop...
+
+                
+                // eprintln!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..res]);
+                // eprintln!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..res]);
+                // print!("{}", String::from_utf8_lossy(&outbuf[..res]));
+                let _ = stdout.write(&outbuf[..res2]);
+                let _ = stdout.flush();
+                
                 let _ = match conn.stream_send(4, &stdinbuf[..res], false) {
                     Ok(v) => v,
                     Err(e) => {
@@ -447,24 +468,9 @@ pub fn connect(
                         0
                     },
                 };
-
-                let res = match conn.stream_recv(4, &mut outbuf) {
-                    Ok((v,_)) => v,
-                    Err(e) => {
-                        // error!("{} recv failed: {:?}", conn.trace_id(), e);
-                        0
-                    },
-                };
-
-                // looping for echoes doesnt work since send doesnt send until end of loop...
-
-                
-                // println!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..res]);
-                // println!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..res]);
-                // print!("{}", String::from_utf8_lossy(&outbuf[..res]));
-                let _ = stdout.write(&outbuf[..res]);
-                let _ = stdout.flush();
+                // eprintln!("sending {} ({})", String::from_utf8_lossy(&stdinbuf[..res]), res);
             }
+                
                 // let _ = conn.send(&mut stdinbuf[..res]);
 
 
@@ -476,62 +482,8 @@ pub fn connect(
 
 
 
-            // At this stage the ALPN negotiation succeeded and selected a
-            // single application protocol name. We'll use this to construct
-            // the correct type of HttpConn but `application_proto()`
-            // returns a slice, so we have to convert it to a str in order
-            // to compare to our lists of protocols. We `unwrap()` because
-            // we need the value and if something fails at this stage, there
-            // is not much anyone can do to recover.
 
-            // let app_proto = conn.application_proto();
-
-
-            // if alpns::HTTP_09.contains(&app_proto) {
-            //     http_conn = Some(Http09Conn::with_urls(
-            //         &args.urls,
-            //         args.reqs_cardinal,
-            //         Rc::clone(&output_sink),
-            //     ));
-
-            //     app_proto_selected = true;
-            // } else if alpns::HTTP_3.contains(&app_proto) {
-            //     let dgram_sender = if conn_args.dgrams_enabled {
-            //         Some(Http3DgramSender::new(
-            //             conn_args.dgram_count,
-            //             conn_args.dgram_data.clone(),
-            //             0,
-            //         ))
-            //     } else {
-            //         None
-            //     };
-
-            //     http_conn = Some(Http3Conn::with_urls(
-            //         &mut conn,
-            //         &args.urls,
-            //         args.reqs_cardinal,
-            //         &args.req_headers,
-            //         &args.body,
-            //         &args.method,
-            //         args.send_priority_update,
-            //         conn_args.max_field_section_size,
-            //         conn_args.qpack_max_table_capacity,
-            //         conn_args.qpack_blocked_streams,
-            //         args.dump_json,
-            //         dgram_sender,
-            //         Rc::clone(&output_sink),
-            //     ));
-
-            //     app_proto_selected = true;
-            // }
         }
-
-        // If we have an HTTP connection, first issue the requests then
-        // process received data.
-        // if let Some(h_conn) = http_conn.as_mut() {
-        //     h_conn.send_requests(&mut conn, &args.dump_response_path);
-        //     h_conn.handle_responses(&mut conn, &mut buf, &app_data_start);
-        // }
 
 // END APPPROTO SECTION
 

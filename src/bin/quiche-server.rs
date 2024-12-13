@@ -50,6 +50,7 @@ use std::rc::Rc;
 
 use std::cell::RefCell;
 
+use mio::event;
 use ring::rand::*;
 
 use SQSH::args::*;
@@ -62,10 +63,24 @@ const MAX_BUF_SIZE: usize = 65507;
 
 const MAX_DATAGRAM_SIZE: usize = 1350;
 
+
+use std::fs;
+use std::os::unix::io::AsRawFd;
+use std::process::Command;
+
+
+
 fn main() {
     let mut buf = [0; MAX_BUF_SIZE];
     let mut out = [0; MAX_BUF_SIZE];
     let mut pacing = false;
+
+    let mut client_sent:[u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
+    let mut client_reply:[u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
+    let mut cs_off_s:usize = 0;
+    let mut cs_off_e:usize = 0;
+    let mut cr_off_s:usize = 0;
+    let mut cr_off_e:usize = 0;
 
     env_logger::builder().format_timestamp_nanos().init();
 
@@ -181,6 +196,7 @@ fn main() {
     let mut next_client_id = 0;
     let mut clients_ids = ClientIdMap::new();
     let mut clients = ClientMap::new();
+   // TMP 
 
     let mut pkt_count = 0;
 
@@ -207,6 +223,7 @@ fn main() {
                 panic!("mio poll() call failed fatally: {:?}", e);
             }
         }
+
 
         // Read incoming UDP packets from the socket and feed them to quiche,
         // until there are no more packets to read.
@@ -436,131 +453,34 @@ fn main() {
                 from,
             };
 
+            
             // Process potentially coalesced packets.
             let read  = match client.conn.recv(pkt_buf, recv_info) {
                 Ok(v) => v,
-
+                
                 Err(e) => {
                     error!("{} recv failed: {:?}", client.conn.trace_id(), e);
                     continue 'read;
                 },
             };
             
-            
-            
-
-
             trace!("{} processed {} bytes", client.conn.trace_id(), read);
-
-//---------------------------------------------------
-// BEGIN APPDATA SECTION
-// currently uses HTTP, but we'll make a custom application protocol probably to handle SSH style information.
-
+            
+            // println!("{} processed {} bytes", client.conn.trace_id(), read);
+            
+            
+            
+            //---------------------------------------------------
+            // BEGIN APPDATA SECTION
+            // currently uses HTTP, but we'll make a custom application protocol probably to handle SSH style information.
+            
             // Create a new application protocol session as soon as the QUIC
             // connection is established.
-            if 
-            // !client.app_proto_selected &&
-                (client.conn.is_in_early_data() ||
-                    client.conn.is_established())
-            {
-                // At this stage the ALPN negotiation succeeded and selected a
-                // single application protocol name. We'll use this to construct
-                // the correct type of HttpConn but `application_proto()`
-                // returns a slice, so we have to convert it to a str in order
-                // to compare to our lists of protocols. We `unwrap()` because
-                // we need the value and if something fails at this stage, there
-                // is not much anyone can do to recover.
-                // let app_proto = client.conn.application_proto();
 
-            //     #[allow(clippy::box_default)]
-            //     if alpns::HTTP_09.contains(&app_proto) {
-            //         client.http_conn = Some(Box::<Http09Conn>::default());
-
-            //         client.app_proto_selected = true;
-            //     } else if alpns::HTTP_3.contains(&app_proto) {
-            //         let dgram_sender = if conn_args.dgrams_enabled {
-            //             Some(Http3DgramSender::new(
-            //                 conn_args.dgram_count,
-            //                 conn_args.dgram_data.clone(),
-            //                 1,
-            //             ))
-            //         } else {
-            //             None
-            //         };
-
-            //         client.http_conn = match Http3Conn::with_conn(
-            //             &mut client.conn,
-            //             conn_args.max_field_section_size,
-            //             conn_args.qpack_max_table_capacity,
-            //             conn_args.qpack_blocked_streams,
-            //             dgram_sender,
-            //             Rc::new(RefCell::new(stdout_sink)),
-            //         ) {
-            //             Ok(v) => Some(v),
-
-            //             Err(e) => {
-            //                 trace!("{} {}", client.conn.trace_id(), e);
-            //                 None
-            //             },
-            //         };
-
-            //         client.app_proto_selected = true;
-            //     }
-
-            //     // Update max_datagram_size after connection established.
-            //     client.max_datagram_size =
-            //         client.conn.max_send_udp_payload_size();
-            // }
-
-            // if client.http_conn.is_some() {
-            //     let conn = &mut client.conn;
-            //     let http_conn = client.http_conn.as_mut().unwrap();
-            //     let partial_responses = &mut client.partial_responses;
-
-            //     // Visit all writable response streams to send any remaining HTTP
-            //     // content.
-            //     for stream_id in writable_response_streams(conn) {
-            //         http_conn.handle_writable(conn, partial_responses, stream_id);
-            //     }
-
-            //     if http_conn
-            //         .handle_requests(
-            //             conn,
-            //             &mut client.partial_requests,
-            //             partial_responses,
-            //             &args.root,
-            //             &args.index,
-            //             &mut buf,
-            //         )
-            //         .is_err()
-            //     {
-            //         continue 'read;
-            //     }
-            }
-
-            client.sqsh_conn =  
-            vec![Some(SQSH1Conn::with_init(
-                &mut client.top_stream_id,
-                SQSHInitMode::SQSHInitNone,
-                &None
-            ))];
-
-            handle_path_events(client);
-
-
-
-            let read  = match client.conn.stream_recv(4, pkt_buf){
-                Ok((v, _)) => v,
-
-                Err(e) => {
-                    // error!("{} recv failed: {:?}", client.conn.trace_id(), e);
-                    // continue 'read;
-                    0
-                },
-            };
+            
 
             //TODO: change zero...
-            let mut echoed: usize = 0;
+            // let mut echoed: usize = 0;
             // while echoed < read {
                 // echoed += match client.conn.stream_send(4, &pkt_buf[..read], false){
                 //     Ok(v) => v,
@@ -571,16 +491,100 @@ fn main() {
                 //     },
                 // };
             // }
-            match client.conn.stream_send(4, &pkt_buf[..read], false){
-                Ok(v) => v,
-                Err(e) => {
-                    error!("{} send failed: {:?}", client.conn.trace_id(), e);
-                    // continue 'read;
-                    0
-                },
-            };
-            println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
 
+            if 
+            (client.conn.is_in_early_data() ||
+            client.conn.is_established())
+            {
+                
+                if client.sqsh_conn.is_empty() || client.sqsh_conn[0].is_none() {
+                    client.sqsh_conn =  
+                    vec![Some(SQSH1Conn::with_init(
+                        &mut client.top_stream_id,
+                        SQSHInitMode::SQSHInitShell,
+                        &None,
+                        80,
+                        10,
+                    ))];
+                }
+                
+                handle_path_events(client);
+                
+
+                // eprintln!("{:?}", client.sqsh_conn[0]);
+                match &mut client.sqsh_conn[0]{
+                    None =>(),
+                    Some(connbox)=>{
+                        // let read  = match client.conn.stream_recv(4, pkt_buf){
+                        let read  = match client.conn.stream_recv(connbox.get_sid(), connbox.get_in_buf()){
+                            Ok((v, _)) => v,
+                            
+                            Err(e) => {
+                                // error!("{} recv failed: {:?}", client.conn.trace_id(), e);
+                                // continue 'read;
+                                0
+                            },
+                        };
+                        connbox.wrotex_in(read);
+                        let pair = (*connbox).get_pair().unwrap();
+                        
+                        eprint!("In: {:?}", String::from_utf8_lossy(connbox.get_in_data()));
+
+                        // let _: Result<(), io::Error> = write!(pair.master.take_writer().unwrap(), "{}", String::from_utf8_lossy(connbox.get_in_buf()));
+                        connbox.write();
+
+                        connbox.readx_in(read);
+                    }
+                }
+
+                match &mut client.sqsh_conn[0]{
+                    None =>(),
+                    Some(connbox)=>{
+                        
+                        let pair = (*connbox).get_pair().unwrap();
+                        
+                        // let mut reader = pair.master.try_clone_reader().unwrap();
+
+                        // let read = reader.read(connbox.get_out_buf()).unwrap();
+                        let read = connbox.read();
+                        connbox.wrotex_out(read);
+                        
+                        // let _ = write!(pair.master.take_writer().unwrap(), "{}", String::from_utf8_lossy(connbox.get_in_buf()));
+                        // connbox.readx_in(read);
+
+                        eprint!("Out: {:?}", String::from_utf8_lossy(connbox.get_out_data()));
+
+
+                        let sent  = match client.conn.stream_send(connbox.get_sid(), connbox.get_out_data(), false){
+                            Ok(v) => v,
+                            
+                            Err(e) => {
+                                // error!("{} recv failed: {:?}", client.conn.trace_id(), e);
+                                // continue 'read;
+                                0
+                            },
+                        };
+                        connbox.readx_out(sent);
+                    }
+                }
+                
+
+                // println!("read: {} ({})", String::from_utf8_lossy(&pkt_buf[..read]), read);
+                // match client.conn.stream_send(4, &pkt_buf[..read], false){
+                //     Ok(v) => v,
+                //     Err(e) => {
+                //         error!("{} send failed: {:?}", client.conn.trace_id(), e);
+                //         // continue 'read;
+                //         0
+                //     },
+                // };
+                // println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
+                // break 'read;
+            
+                
+            
+            }
+        
 
 
             // See whether source Connection IDs have been retired.
@@ -599,6 +603,9 @@ fn main() {
                 clients_ids.insert(scid, client.client_id);
             }
         }
+
+// ----------------------------------------------------------
+// END APPDATA SECTION
 
         // Generate outgoing QUIC packets for all active connections and send
         // them on the UDP socket, until quiche reports that there are no more
@@ -676,14 +683,14 @@ fn main() {
 
             trace!("{} written {} bytes", client.conn.trace_id(), total_write);
 
+            println!("real socket write wrote {} bytes.", total_write);
+
             if total_write >= max_send_burst {
                 trace!("{} pause writing", client.conn.trace_id(),);
                 continue_write = true;
                 break;
             }
         }
-// ----------------------------------------------------------
-// END APPDATA SECTION
 
         // Garbage collect closed connections.
         clients.retain(|_, ref mut c| {
