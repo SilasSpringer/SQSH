@@ -201,7 +201,9 @@ pub fn connect(
     unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) };
     let mut termios = unsafe { termios.assume_init() };
     let original = termios;
-    unsafe { libc::cfmakeraw(&mut termios) };
+    // unsafe { libc::cfmakeraw(&mut termios) };
+    // termios.c_iflag &= !(libc::IGNBRK | libc::BRKINT | libc::PARMRK );
+    termios.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::ISIG); // JUST disable echoing
     termios.c_oflag = original.c_oflag;
     // unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &termios) };
 
@@ -299,7 +301,7 @@ pub fn connect(
     let mut migrated = false;
 
     loop {
-// APPROTO REFERENCE
+        // APPROTO REFERENCE
         if !conn.is_in_early_data() 
         //|| app_proto_selected 
         {
@@ -416,7 +418,7 @@ pub fn connect(
         // }
 
 
-// BEGIN APPPROTO SECTION
+        // BEGIN APPPROTO SECTION
         // Create a new application protocol session once the QUIC connection is
         // established.
         if (conn.is_established() || conn.is_in_early_data()) &&
@@ -439,17 +441,22 @@ pub fn connect(
             unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &original) };
 
             
-            if let Some(s_conn) = sqsh_conn {
+            // if let Some(s_conn) = sqsh_conn {
                 //TODO: change zero...
                 // let _ = conn.stream_send(4, &stdinbuf[..res], false).expect("send failed.");
 
                 let res2 = match conn.stream_recv(4, &mut outbuf) {
-                    Ok((v,_)) => v,
+                    Ok((v,_)) => {
+                        //eprintln!("stream recv good ");
+                        v
+                    }
                     Err(e) => {
+                        //eprintln!("stream recv bad ");
                         // error!("{} recv failed: {:?}", conn.trace_id(), e);
                         0
-                    },
+                    }
                 };
+                //eprintln!("after stream recv ");
                 // eprintln!("recieved {} ({})", String::from_utf8_lossy(&outbuf[..res2]), res2);
 
                 // looping for echoes doesnt work since send doesnt send until end of loop...
@@ -458,8 +465,11 @@ pub fn connect(
                 // eprintln!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..res]);
                 // eprintln!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..res]);
                 // print!("{}", String::from_utf8_lossy(&outbuf[..res]));
+                //eprintln!("Before write ");
                 let _ = stdout.write(&outbuf[..res2]);
+                //eprintln!("After write ");
                 let _ = stdout.flush();
+                //eprintln!("After flush ");
                 
                 let _ = match conn.stream_send(4, &stdinbuf[..res], false) {
                     Ok(v) => v,
@@ -469,7 +479,7 @@ pub fn connect(
                     },
                 };
                 // eprintln!("sending {} ({})", String::from_utf8_lossy(&stdinbuf[..res]), res);
-            }
+            // }
                 
                 // let _ = conn.send(&mut stdinbuf[..res]);
 
@@ -485,7 +495,7 @@ pub fn connect(
 
         }
 
-// END APPPROTO SECTION
+        // END APPPROTO SECTION
 
         // Handle path events.
         while let Some(qe) = conn.path_event_next() {

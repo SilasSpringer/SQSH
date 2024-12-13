@@ -503,9 +503,10 @@ fn main() {
                         &mut client.top_stream_id,
                         SQSHInitMode::SQSHInitShell,
                         &None,
-                        80,
-                        10,
+                        32,
+                        156,
                     ))];
+                    // poll.registry().register(source, token, interests)
                 }
                 
                 handle_path_events(client);
@@ -526,14 +527,15 @@ fn main() {
                             },
                         };
                         connbox.wrotex_in(read);
-                        let pair = (*connbox).get_pair().unwrap();
+                        // let pair = (*connbox).get_pair().unwrap();
                         
                         eprint!("In: {:?}", String::from_utf8_lossy(connbox.get_in_data()));
-
+                        
                         // let _: Result<(), io::Error> = write!(pair.master.take_writer().unwrap(), "{}", String::from_utf8_lossy(connbox.get_in_buf()));
-                        connbox.write();
-
-                        connbox.readx_in(read);
+                        let wrote = connbox.write();
+                        
+                        eprint!("After write ln 534, wrote ({})", wrote);
+                        connbox.readx_in(wrote);
                     }
                 }
 
@@ -541,7 +543,7 @@ fn main() {
                     None =>(),
                     Some(connbox)=>{
                         
-                        let pair = (*connbox).get_pair().unwrap();
+                        // let pair = (*connbox).get_pair().unwrap();
                         
                         // let mut reader = pair.master.try_clone_reader().unwrap();
 

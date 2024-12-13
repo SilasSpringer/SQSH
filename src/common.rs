@@ -393,7 +393,7 @@ pub trait SQSHConn {
     fn get_reader(&mut self) -> Option<&mut Box<(dyn std::io::Read + Send)>>;
 
     fn read(&mut self) -> usize;
-    fn write(&mut self) -> ();
+    fn write(&mut self) -> usize;
     
     fn get_in_buf(&mut self) -> &mut [u8];
     fn get_out_buf(&mut self) -> &mut [u8];
@@ -497,12 +497,13 @@ impl SQSH1Conn {
             
         };
 
-        let cmd: CommandBuilder = CommandBuilder::new("bash");
+        let cmd: CommandBuilder = CommandBuilder::new("sh");
 
 
         if let Some(p) = &mut x.pair {
             p.slave.spawn_command(cmd).unwrap();
             x.writer = Some(p.master.take_writer().unwrap());
+            // x.writer.unwrap().nonblocking(true).unwrap();
             x.reader = Some(p.master.try_clone_reader().unwrap());
         };
         Box::new(x)
@@ -521,10 +522,13 @@ impl SQSHConn for SQSH1Conn{
     }
     fn read(&mut self) -> usize{
         // let _: Result<(), io::Error> = read!(self.get_reader().unwrap(), "{}", String::from_utf8_lossy(self.get_out_buf()));
-        self.reader.as_mut().unwrap().read(self.out_buf[self.out_buf_spos..self.out_buf_epos].as_mut()).unwrap()
+        self.reader.as_mut().unwrap()
+            .read(self.out_buf[self.out_buf_spos..self.out_buf_epos].as_mut()).unwrap()
     }
-    fn write(&mut self) -> (){
-        let _ = write!(self.writer.as_mut().unwrap(), "{}", String::from_utf8_lossy(self.in_buf[self.in_buf_spos..self.in_buf_epos].as_mut()));
+    fn write(&mut self) -> usize{
+        self.writer.as_mut().unwrap()
+            .write(self.in_buf[self.in_buf_spos..(self.in_buf_spos+self.in_dlen)].as_mut()).unwrap()
+        // let _ = write!(self.writer.as_mut().unwrap(), "{}", String::from_utf8_lossy(self.in_buf[self.in_buf_spos..self.in_buf_epos].as_mut()));
     }
     fn get_sid(&self) -> u64{
         self.streamid
