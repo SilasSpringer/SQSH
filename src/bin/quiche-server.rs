@@ -445,9 +445,6 @@ fn main() {
                     continue 'read;
                 },
             };
-            
-            
-            
 
 
             trace!("{} processed {} bytes", client.conn.trace_id(), read);
@@ -548,7 +545,6 @@ fn main() {
             handle_path_events(client);
 
 
-
             let read  = match client.conn.stream_recv(4, pkt_buf){
                 Ok((v, _)) => v,
 
@@ -558,25 +554,28 @@ fn main() {
                     0
                 },
             };
-            if read > 0 {
-                // print received data to server terminal
-                println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
+            // print received data to server terminal
+            println!("client sent: {} '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
 
-                // echo back to client
-                let mut echoed = 0;
-                while echoed < read {
-                    let _ = match client.conn.stream_send(4, &pkt_buf[..read], false){
-                        Ok(v) => echoed += v,
-                        Err(e) => {
-                            error!("{} send failed: {:?}", client.conn.trace_id(), e);
-                            // something broke
-                            // avoid inf loop
-                            //continue 'read;
-                            break;
-                        },
-                    };
-                }
-            }
+            // echo back to client
+            // let mut echoed = 0;
+            // while echoed < read {
+                let _ = match client.conn.stream_send(4, &pkt_buf[..read], false){
+                    Ok(v) => { 
+                        //echoed += v;
+                        println!("Sent {} bytes: '{}'", read, String::from_utf8_lossy(&pkt_buf[..read]));
+                        println!("Sent {} bytes: '{}'", v, String::from_utf8_lossy(&pkt_buf[..v]));
+                        v
+                    },
+                    Err(e) => {
+                        error!("{} send failed: {:?}", client.conn.trace_id(), e);
+                        // something broke
+                        // avoid inf loop
+                        //continue 'read;
+                        break;
+                    },
+                };
+            // }
             //TODO: change zero...
             //let mut echoed: usize = 0;
             // while echoed < read {
@@ -672,7 +671,6 @@ fn main() {
             if total_write == 0 || dst_info.is_none() {
                 continue;
             }
-
             if let Err(e) = send_to(
                 &socket,
                 &out[..total_write],

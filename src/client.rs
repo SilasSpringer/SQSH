@@ -298,7 +298,7 @@ pub fn connect(
     let mut migrated = false;
 
     loop {
-// APPROTO REFERENCE
+        // APPROTO REFERENCE
         if !conn.is_in_early_data() 
         //|| app_proto_selected 
         {
@@ -431,11 +431,27 @@ pub fn connect(
                 SQSHInitMode::SQSHInitNone, 
                 &None 
             ));
+            
+            let resp_size = match conn.stream_recv(4, &mut outbuf) {
+                Ok((v,_)) => {
+                    //println!("recv {} bytes: '{}'", v, String::from_utf8_lossy(&outbuf[..v]));
+                    v
+                },
+                Err(e) => {
+                    error!("{} recv failed: {:?}", conn.trace_id(), e);
+                    0
+                },
+            };
+            if resp_size > 0{
+                //println!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..resp_size]);
+                let _ = stdout.write(&outbuf[..resp_size]);
+                let _ = stdout.flush();
+            }
+
             unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &termios) };
             let in_size = stdin.read(&mut stdinbuf).expect("Error reading from stdin.");
             unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &original) };
 
-            
             if let Some(s_conn) = sqsh_conn {
                 // send input to server
                 let send_res = match conn.stream_send(4, &stdinbuf[..in_size], false) {
@@ -447,33 +463,9 @@ pub fn connect(
                         break;
                     },
                 };
-
-                let resp_size = match conn.stream_recv(4, &mut outbuf) {
-                    Ok((v,_)) => v,
-                    Err(e) => {
-                        error!("{} recv failed: {:?}", conn.trace_id(), e);
-                        0
-                    },
-                };
-                
-                println!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..in_size]);
-                println!("server replied: {} ({:?})", String::from_utf8_lossy(&outbuf), &outbuf[..resp_size]);
-                if resp_size > 0{
-                    let _ = stdout.write(&outbuf[..resp_size]);
-                    let _ = stdout.flush();
-                } else {
-                    error!("no response from server");
-                }
+                //println!("you said: {} ({:?})", String::from_utf8_lossy(&stdinbuf), &stdinbuf[..in_size]);
             }
-                // let _ = conn.send(&mut stdinbuf[..res]);
-
-
-            // collate data from stdin
-            // send data
-            // continue and let processing occur
-
-            // need to figure out how to hold onto data from stdin that arrives while elsewhere in the loop though...
-
+    
 
 
             // At this stage the ALPN negotiation succeeded and selected a
@@ -533,7 +525,7 @@ pub fn connect(
         //     h_conn.handle_responses(&mut conn, &mut buf, &app_data_start);
         // }
 
-// END APPPROTO SECTION
+        // END APPPROTO SECTION
 
         // Handle path events.
         while let Some(qe) = conn.path_event_next() {
